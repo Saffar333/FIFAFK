@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ЧМ Турнир — Костя vs Фаргат</title>
+<style>
+  :root{
+    --bg:#0c0f14; --bg2:#131820; --panel:#171d27; --panel2:#1d2530;
+    --line:#2a323f; --txt:#e8edf4; --muted:#8b97a8; --accent:#3da9fc;
+    --g1:#3f5320; --g2:#c79a2a; --g3:#27406e; --g4:#7a2424;
+    --good:#34c77b; --bad:#e2574c; --warn:#e8b730; --gold:#f5c542;
+    --kostya:#3da9fc; --fargat:#ff7a59;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1200px 600px at 50% -10%, #16202c 0%, var(--bg) 60%) fixed;
+    color:var(--txt); line-height:1.45; -webkit-font-smoothing:antialiased;
+    padding:18px 14px 60px;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+
+  header.top{text-align:center;margin-bottom:10px}
+  header.top h1{font-size:clamp(20px,4.5vw,30px);margin:0 0 2px;letter-spacing:.3px}
+  header.top .sub{color:var(--muted);font-size:13px}
+
+  .status-bar{
+    display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;
+    margin:10px 0 4px;font-size:12.5px;color:var(--muted);
+  }
+  .live-dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block}
+  .live-dot.ok{background:var(--good);box-shadow:0 0 0 0 rgba(52,199,123,.6);animation:pulse 2s infinite}
+  .live-dot.warn{background:var(--warn)} .live-dot.err{background:var(--bad)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,199,123,.5)}70%{box-shadow:0 0 0 7px rgba(52,199,123,0)}100%{box-shadow:0 0 0 0 rgba(52,199,123,0)}}
+  .status-bar .src{max-width:540px}
+  .mini{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:8px;
+    padding:5px 11px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .mini:hover{border-color:var(--accent)}
+
+  .leader{
+    margin:12px 0 18px;border-radius:16px;padding:16px 18px;
+    background:linear-gradient(135deg,var(--panel) 0%,var(--panel2) 100%);
+    border:1px solid var(--line);box-shadow:var(--shadow);
+    display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;text-align:center;transition:border-color .3s;
+  }
+  .leader .crown{font-size:30px;line-height:1}
+  .leader .lead-main{font-size:clamp(17px,4vw,24px);font-weight:700}
+  .leader .lead-sub{font-size:13px;color:var(--muted);width:100%}
+  .leader.k{border-color:rgba(61,169,252,.55)} .leader.f{border-color:rgba(255,122,89,.55)} .leader.tie{border-color:var(--line)}
+  .nameK{color:var(--kostya)} .nameF{color:var(--fargat)}
+
+  .board{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.board{grid-template-columns:1fr}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+  .phead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+  .pname{font-size:18px;font-weight:800;letter-spacing:.3px}
+  .panel.k .pname{color:var(--kostya)} .panel.f .pname{color:var(--fargat)}
+  .ptotal{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}
+  .pbreak{font-size:12px;color:var(--muted);margin-bottom:10px}
+  .pbreak b{color:var(--txt);font-weight:600}
+
+  .team{
+    display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;
+    padding:9px 10px;border-radius:11px;background:var(--bg2);
+    border:1px solid var(--line);border-left:4px solid var(--line);margin-bottom:7px;transition:border-color .2s,background .2s;
+  }
+  .team.st-pending{border-left-color:var(--warn);background:rgba(232,183,48,.07)}
+  .team.st-alive{border-left-color:var(--good)}
+  .team.st-out{border-left-color:#3a4350;opacity:.72}
+  .team.st-champion{border-left-color:var(--gold);background:rgba(245,197,66,.10)}
+  .team.st-manual{border-left-color:var(--accent)}
+  .team.st-unknown{border-left-color:var(--line)}
+
+  .team .tname{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14.5px;min-width:0;flex-wrap:wrap}
+  .team .flag{font-size:18px}
+  .team .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;color:#fff;flex:none}
+  .b1{background:var(--g1)} .b2{background:var(--g2);color:#221c00} .b3{background:var(--g3)} .b4{background:var(--g4)}
+  .pill{font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;flex:none;letter-spacing:.2px}
+  .pill.pending{background:rgba(232,183,48,.18);color:var(--warn)}
+  .pill.alive{background:rgba(52,199,123,.16);color:var(--good)}
+  .pill.out{background:rgba(160,170,185,.14);color:#aab4c6}
+  .pill.champion{background:rgba(245,197,66,.18);color:var(--gold)}
+  .pill.manual{background:rgba(61,169,252,.16);color:var(--accent)}
+  .pill.unknown{background:rgba(160,170,185,.10);color:var(--muted)}
+
+  .tpts{font-weight:800;font-variant-numeric:tabular-nums;font-size:16px;text-align:right;min-width:34px}
+  .tpts .bonus{color:var(--good);font-size:11px;font-weight:700}
+
+  .controls{grid-column:1 / -1;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select{
+    flex:1;min-width:128px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:9px;padding:7px 9px;font-size:13.5px;appearance:none;-webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238b97a8' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 10px center;padding-right:26px;
+  }
+  .grp{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);user-select:none;cursor:pointer;white-space:nowrap}
+  .grp input{width:16px;height:16px;accent-color:var(--good);cursor:pointer}
+  .grp.dim{opacity:.4;cursor:not-allowed} .grp.on{color:var(--good)}
+  .revert{display:none;background:none;border:1px solid var(--accent);color:var(--accent);
+    border-radius:7px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer}
+  .team.st-manual .revert{display:inline-block}
+
+  .stats{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+  .stats h3{margin:0 0 10px;font-size:14px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:8px 6px;text-align:center;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left;color:var(--muted)}
+  td.num{font-variant-numeric:tabular-nums;font-weight:700;font-size:15px}
+  tr:last-child td{border-bottom:none}
+  .colK{color:var(--kostya)} .colF{color:var(--fargat)}
+  .win::after{content:" ›";font-weight:900}
+
+  .legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:16px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:16px}
+  button.btn{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:10px;
+    padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;transition:transform .05s,border-color .2s}
+  button.btn:hover{border-color:var(--accent)} button.btn:active{transform:translateY(1px)}
+  button.btn.danger:hover{border-color:var(--bad)}
+  footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;line-height:1.6}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#0a1622;color:#fff;
+    border:1px solid var(--accent);border-radius:12px;padding:11px 18px;font-size:14px;opacity:0;pointer-events:none;
+    transition:all .3s;z-index:50;box-shadow:var(--shadow);max-width:90vw;text-align:center}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>🏆 ЧМ-2026 Турнир</h1>
+    <div class="sub">Костя vs Фаргат · авто-подсчёт по ходу чемпионата</div>
+  </header>
+
+  <div class="status-bar">
+    <span><span class="live-dot" id="dot"></span> <span id="src">Загрузка данных…</span></span>
+    <button class="mini" id="refresh">↻ Обновить</button>
+  </div>
+
+  <div class="leader" id="leader">
+    <span class="crown">⚽</span><span class="lead-main">—</span><span class="lead-sub"></span>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="stats">
+    <h3>Тай-брейк (при равенстве очков сверху вниз)</h3>
+    <table>
+      <thead><tr><th>Критерий</th><th class="colK" id="th-k">Костя</th><th class="colF" id="th-f">Фаргат</th></tr></thead>
+      <tbody id="stats-body"></tbody>
+    </table>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--g1)"></i>С1 · 7</span>
+    <span><i class="dot" style="background:var(--g2)"></i>С2 · 5</span>
+    <span><i class="dot" style="background:var(--g3)"></i>С3 · 3 · бонус +3</span>
+    <span><i class="dot" style="background:var(--g4)"></i>С4 · 1 · бонус +5</span>
+    <span style="margin-left:8px"><i class="dot" style="background:var(--warn)"></i>группа идёт</span>
+    <span><i class="dot" style="background:var(--good)"></i>в плей-офф</span>
+    <span><i class="dot" style="background:#3a4350"></i>вылет</span>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn danger" id="resetManual">↺ Сбросить ручные правки (всё на авто)</button>
+  </div>
+
+  <footer>
+    Данные тянутся автоматически с публичного API ESPN через функцию Vercel и обновляются каждые 2 минуты.<br>
+    Жёлтым — команды, чья группа ещё не доиграна (счёт может измениться). Любую команду можно поправить вручную — тогда авто-обновление её не трогает, пока не нажать «↻ авто».<br>
+    Очки за стадию: группа 0 · 1/16 — 2 · 1/8 — 4 · 1/4 — 7 · 1/2 — 11 · финал — 16 · чемпион — 22. Бонус за 1-е место в группе: С3 +3, С4 +5. Стартовые очки = остаток бюджета (у обоих 0).
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ---------- КОНСТАНТЫ ИГРЫ ---------- */
+const GRID_COST = {1:7,2:5,3:3,4:1};
+const GRID_BONUS = {1:0,2:0,3:3,4:5};
+const BUDGET = 25;
+const STAGES = [
+  {label:"Группа (вылет)", pts:0},
+  {label:"1/16 финала",    pts:2},
+  {label:"1/8 финала",     pts:4},
+  {label:"1/4 финала",     pts:7},
+  {label:"1/2 финала",     pts:11},
+  {label:"Финал",          pts:16},
+  {label:"Чемпион 🏆",      pts:22},
+];
+const ST_CHAMP=6, ST_FINAL=5, ST_SEMI=4, ST_QUARTER=3;
+
+const PLAYERS = {
+  kostya:{ name:"Костя", teams:[
+    {id:"por",name:"Португалия",flag:"🇵🇹",grid:1,free:true},
+    {id:"eng",name:"Англия",flag:"🏴󠁧󠁢󠁥󠁮󠁧󠁿",grid:1},
+    {id:"tur",name:"Турция",flag:"🇹🇷",grid:2},
+    {id:"col",name:"Колумбия",flag:"🇨🇴",grid:2},
+    {id:"nor",name:"Норвегия",flag:"🇳🇴",grid:3},
+    {id:"civ",name:"Кот-д’Ивуар",flag:"🇨🇮",grid:3},
+    {id:"cze",name:"Чехия",flag:"🇨🇿",grid:4},
+    {id:"gha",name:"Гана",flag:"🇬🇭",grid:4},
+  ]},
+  fargat:{ name:"Фаргат", teams:[
+    {id:"esp",name:"Испания",flag:"🇪🇸",grid:1,free:true},
+    {id:"arg",name:"Аргентина",flag:"🇦🇷",grid:1},
+    {id:"fra",name:"Франция",flag:"🇫🇷",grid:1},
+    {id:"sen",name:"Сенегал",flag:"🇸🇳",grid:2},
+    {id:"egy",name:"Египет",flag:"🇪🇬",grid:3},
+    {id:"swe",name:"Швеция",flag:"🇸🇪",grid:4},
+    {id:"uzb",name:"Узбекистан",flag:"🇺🇿",grid:4},
+    {id:"par",name:"Парагвай",flag:"🇵🇾",grid:4},
+  ]},
+};
+const PLAYER_OF = {}; // teamId -> player key
+for(const p of ["kostya","fargat"]) for(const t of PLAYERS[p].teams) PLAYER_OF[t.id]=p;
+
+const LS_STATE = "wc2026-state-v2";
+const LS_LIVE  = "wc2026-live-v2";
+
+/* state per team: {s, g, manual, status} */
+let STATE = {};
+let LIVE = null; // last API snapshot {teams:{id:{stageIndex,groupWinner,status,...}}}
+
+function blankState(){
+  const s={};
+  for(const p of ["kostya","fargat"]) for(const t of PLAYERS[p].teams)
+    s[t.id]={s:0,g:false,manual:false,status:"unknown"};
+  return s;
+}
+
+/* ---------- РАСЧЁТ ---------- */
+function startingPoints(pkey){
+  let spent=0;
+  for(const t of PLAYERS[pkey].teams) if(!t.free) spent+=GRID_COST[t.grid];
+  return BUDGET-spent;
+}
+function teamPoints(t, st){
+  const stage=STAGES[st.s].pts;
+  const bonus=(st.g && st.s>0)?GRID_BONUS[t.grid]:0;
+  return {stage,bonus,total:stage+bonus};
+}
+function playerSummary(pkey){
+  const start=startingPoints(pkey);
+  let stageSum=0,bonusSum=0,champ=0,final=0,semi=0,quarter=0,groupWins=0;
+  for(const t of PLAYERS[pkey].teams){
+    const st=STATE[t.id]; const tp=teamPoints(t,st);
+    stageSum+=tp.stage; bonusSum+=tp.bonus;
+    if(st.s>=ST_CHAMP)champ++; if(st.s>=ST_FINAL)final++; if(st.s>=ST_SEMI)semi++;
+    if(st.s>=ST_QUARTER)quarter++; if(st.g&&st.s>0)groupWins++;
+  }
+  return {start,stageSum,bonusSum,total:start+stageSum+bonusSum,champ,final,semi,quarter,groupWins};
+}
+function decide(a,b){
+  if(a.total!==b.total) return {winner:a.total>b.total?"kostya":"fargat",reason:"по итоговым очкам",criterion:"total"};
+  const chain=[["champ","есть команда-чемпион"],["final","больше команд в финале"],["semi","больше команд в 1/2 финала"],["quarter","больше команд в 1/4 финала"],["groupWins","больше первых мест в группе"]];
+  for(const [k,reason] of chain) if(a[k]!==b[k]) return {winner:a[k]>b[k]?"kostya":"fargat",reason,criterion:k};
+  return {winner:"tie",reason:"полное равенство",criterion:null};
+}
+
+/* ---------- СТАТУСЫ ---------- */
+const PILL = {
+  pending:{cls:"pending",txt:"группа идёт"},
+  alive:{cls:"alive",txt:"в плей-офф"},
+  out:{cls:"out",txt:"вылет"},
+  champion:{cls:"champion",txt:"чемпион"},
+  manual:{cls:"manual",txt:"вручную"},
+  unknown:{cls:"unknown",txt:"—"},
+};
+function rowStatus(st){ return st.manual ? "manual" : (st.status||"unknown"); }
+
+/* ---------- РЕНДЕР КАРКАСА ---------- */
+function buildBoard(){
+  const board=document.getElementById("board"); board.innerHTML="";
+  for(const pkey of ["kostya","fargat"]){
+    const P=PLAYERS[pkey];
+    const panel=document.createElement("div");
+    panel.className="panel "+(pkey==="kostya"?"k":"f");
+    panel.innerHTML=`<div class="phead"><div class="pname">${P.name}</div><div class="ptotal" id="total-${pkey}">0</div></div>
+      <div class="pbreak" id="break-${pkey}"></div><div id="teams-${pkey}"></div>`;
+    board.appendChild(panel);
+    const teamsEl=panel.querySelector(`#teams-${pkey}`);
+    for(const t of P.teams){
+      const row=document.createElement("div"); row.className="team st-unknown"; row.id=`row-${t.id}`;
+      const opts=STAGES.map((s,i)=>`<option value="${i}">${s.label}</option>`).join("");
+      row.innerHTML=`
+        <div class="tname">
+          <span class="flag">${t.flag}</span>
+          <span class="nm">${t.name}${t.free?' <span style="color:var(--muted);font-weight:400">· беспл.</span>':''}</span>
+          <span class="badge b${t.grid}">С${t.grid}</span>
+          <span class="pill unknown" id="pill-${t.id}">—</span>
+        </div>
+        <div class="tpts" id="pts-${t.id}">0</div>
+        <div class="controls">
+          <select id="sel-${t.id}">${opts}</select>
+          <label class="grp" id="lbl-${t.id}"><input type="checkbox" id="chk-${t.id}"> 1-е в группе</label>
+          <button class="revert" id="rev-${t.id}" title="вернуть авто-данные">↻ авто</button>
+        </div>`;
+      teamsEl.appendChild(row);
+      row.querySelector(`#sel-${t.id}`).addEventListener("change",e=>{
+        const st=STATE[t.id]; st.s=parseInt(e.target.value,10); if(st.s===0)st.g=false;
+        st.manual=true; save(); recalc();
+      });
+      row.querySelector(`#chk-${t.id}`).addEventListener("change",e=>{
+        const st=STATE[t.id]; st.g=e.target.checked; st.manual=true; save(); recalc();
+      });
+      row.querySelector(`#rev-${t.id}`).addEventListener("click",()=>{
+        STATE[t.id].manual=false; applyLiveToTeam(t.id); save(); recalc(); toast("Вернул авто-данные: "+t.name);
+      });
+    }
+  }
+  document.getElementById("th-k").textContent=PLAYERS.kostya.name;
+  document.getElementById("th-f").textContent=PLAYERS.fargat.name;
+}
+
+/* ---------- ПЕРЕСЧЁТ ---------- */
+function recalc(){
+  const sum={};
+  for(const pkey of ["kostya","fargat"]){
+    for(const t of PLAYERS[pkey].teams){
+      const st=STATE[t.id];
+      const sel=document.getElementById(`sel-${t.id}`); if(sel) sel.value=st.s;
+      const advanced=st.s>0;
+      const chk=document.getElementById(`chk-${t.id}`), lbl=document.getElementById(`lbl-${t.id}`);
+      if(chk){chk.checked=st.g&&advanced; chk.disabled=!advanced;}
+      if(lbl){lbl.classList.toggle("dim",!advanced); lbl.classList.toggle("on",st.g&&advanced);}
+      const tp=teamPoints(t,st);
+      const ptsEl=document.getElementById(`pts-${t.id}`);
+      if(ptsEl) ptsEl.innerHTML = tp.bonus>0 ? `${tp.total}<span class="bonus"> (+${tp.bonus})</span>` : `${tp.total}`;
+      const rs=rowStatus(st);
+      const row=document.getElementById(`row-${t.id}`);
+      if(row) row.className="team st-"+rs;
+      const pill=document.getElementById(`pill-${t.id}`);
+      if(pill){ const p=PILL[rs]||PILL.unknown; pill.className="pill "+p.cls; pill.textContent=p.txt; }
+    }
+    const s=playerSummary(pkey); sum[pkey]=s;
+    document.getElementById(`total-${pkey}`).textContent=s.total;
+    document.getElementById(`break-${pkey}`).innerHTML=`старт <b>${s.start}</b> + стадии <b>${s.stageSum}</b> + бонусы <b>${s.bonusSum}</b>`;
+  }
+  updateLeader(sum.kostya,sum.fargat);
+  updateStats(sum.kostya,sum.fargat);
+}
+function updateLeader(k,f){
+  const el=document.getElementById("leader"); const d=decide(k,f);
+  el.classList.remove("k","f","tie");
+  const main=el.querySelector(".lead-main"),sub=el.querySelector(".lead-sub"),crown=el.querySelector(".crown");
+  const diff=Math.abs(k.total-f.total);
+  if(d.winner==="tie"){
+    el.classList.add("tie"); crown.textContent="🤝";
+    main.textContent=`Ничья · ${k.total} : ${f.total}`; sub.textContent="Равенство по всем критериям тай-брейка";
+  } else {
+    const isK=d.winner==="kostya"; el.classList.add(isK?"k":"f"); crown.textContent="👑";
+    const nm=isK?`<span class="nameK">Костя</span>`:`<span class="nameF">Фаргат</span>`;
+    main.innerHTML=`Лидирует ${nm} · ${k.total} : ${f.total}`;
+    sub.textContent=(d.criterion==="total")?(diff===0?"":`преимущество ${diff} очк.`):`очки равны — впереди ${d.reason}`;
+  }
+}
+function updateStats(k,f){
+  const rows=[["Итоговые очки",k.total,f.total],["Команд-чемпионов",k.champ,f.champ],["Команд в финале",k.final,f.final],
+    ["Команд в 1/2 финала",k.semi,f.semi],["Команд в 1/4 финала",k.quarter,f.quarter],["Первых мест в группе",k.groupWins,f.groupWins]];
+  document.getElementById("stats-body").innerHTML=rows.map(([label,a,b])=>{
+    const ka=a>b?"num colK win":"num", fb=b>a?"num colF win":"num";
+    return `<tr><td>${label}</td><td class="${ka}">${a}</td><td class="${fb}">${b}</td></tr>`;
+  }).join("");
+}
+
+/* ---------- LIVE-ДАННЫЕ ---------- */
+function applyLiveToTeam(id){
+  if(!LIVE || !LIVE.teams || !LIVE.teams[id]) return;
+  const d=LIVE.teams[id]; const st=STATE[id];
+  if(st.manual) return;
+  if(typeof d.stageIndex==="number") st.s=Math.max(0,Math.min(6,d.stageIndex));
+  st.g=!!d.groupWinner; if(st.s===0) st.g=false;
+  st.status=d.status||"unknown";
+}
+function applyLiveAll(){ for(const id of Object.keys(STATE)) applyLiveToTeam(id); }
+
+function setSource(kind,text){
+  const dot=document.getElementById("dot"), src=document.getElementById("src");
+  dot.className="live-dot "+(kind||"");
+  src.textContent=text;
+}
+function fmtTime(iso){ try{ return new Date(iso||Date.now()).toLocaleTimeString("ru-RU"); }catch(e){ return ""; } }
+
+async function fetchLive(showToast){
+  setSource("", "Обновление…");
+  try{
+    const r=await fetch("/api/standings",{cache:"no-store"});
+    const data=await r.json();
+    if(data && data.error){ setSource("err","Источник недоступен: "+data.error+" · показаны последние данные"); return; }
+    if(!data || !data.tournamentStarted){
+      setSource("warn","Источник пока без результатов (турнир не начался или данные не обновились). Можно вводить вручную.");
+      return;
+    }
+    LIVE=data; try{localStorage.setItem(LS_LIVE,JSON.stringify(LIVE));}catch(e){}
+    applyLiveAll(); save(); recalc();
+    const manualN=Object.values(STATE).filter(s=>s.manual).length;
+    setSource("ok","Авто-данные ESPN · обновлено "+fmtTime(data.updatedAt)+(manualN?` · вручную: ${manualN}`:""));
+    if(showToast) toast("Данные обновлены");
+  }catch(e){
+    setSource("err","Нет связи с источником · показаны последние данные. На localhost функция /api не работает — нужен Vercel.");
+  }
+}
+
+/* ---------- СОХРАНЕНИЕ ---------- */
+function save(){ try{ localStorage.setItem(LS_STATE,JSON.stringify(STATE)); }catch(e){} }
+function load(){
+  STATE=blankState();
+  try{ const raw=localStorage.getItem(LS_STATE); if(raw){ const o=JSON.parse(raw);
+    for(const id of Object.keys(STATE)){ const v=o&&o[id]; if(v){
+      STATE[id].s=Math.max(0,Math.min(6,(v.s|0)));
+      STATE[id].g=!!v.g && STATE[id].s>0;
+      STATE[id].manual=!!v.manual;
+      STATE[id].status=v.status||"unknown";
+    }}}
+  }catch(e){}
+  try{ const lr=localStorage.getItem(LS_LIVE); if(lr) LIVE=JSON.parse(lr); }catch(e){}
+}
+
+let toastTimer=null;
+function toast(msg){ const el=document.getElementById("toast"); el.textContent=msg; el.classList.add("show");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove("show"),2400); }
+
+/* ---------- ИНИЦ ---------- */
+document.getElementById("refresh").addEventListener("click",()=>fetchLive(true));
+document.getElementById("resetManual").addEventListener("click",()=>{
+  if(confirm("Сбросить все ручные правки и вернуть авто-данные по всем командам?")){
+    for(const id of Object.keys(STATE)) STATE[id].manual=false;
+    applyLiveAll(); save(); recalc(); toast("Все команды — на авто"); fetchLive(false);
+  }
+});
+
+buildBoard();
+load();
+recalc();
+fetchLive(false);
+setInterval(()=>fetchLive(false), 120000);
+</script>
+</body>
+</html>

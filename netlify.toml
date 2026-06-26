@@ -1,0 +1,10 @@
+# Конфигурация Netlify
+# Статический сайт лежит в корне, функция — в netlify/functions.
+# Функция standings.mjs (v2) сама объявляет маршрут /api/standings через export const config.
+
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
