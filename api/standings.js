@@ -1,12 +1,15 @@
 // Vercel serverless function: /api/standings
-// Pulls live FIFA World Cup 2026 data from ESPN (server-side, no key, no CORS issues),
-// maps it to the 16 drafted teams, and derives each team's tournament stage,
-// group-winner flag and live status. Pure logic is in derive() so it can be unit-tested.
+// Live FIFA World Cup 2026 data from ESPN (server-side, no key, no CORS).
+// Group stage -> ESPN standings endpoint. Knockouts -> ESPN scoreboard fetched
+// PER DAY (date ranges are unreliable / time out), phase taken from event.season.slug.
 
 const ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings";
-const ESPN_KNOCKOUTS = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260628-20260720";
+const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
 
-// our internal id -> ESPN abbreviation + name variants (for robust matching)
+// knockout window: 28 Jun 2026 .. 20 Jul 2026 (inclusive), one fetch per day
+const KO_START = Date.UTC(2026, 5, 28);
+const KO_END   = Date.UTC(2026, 6, 20);
+
 const TEAM_MAP = {
   por: { abbr: "POR", names: ["Portugal"] },
   eng: { abbr: "ENG", names: ["England"] },
@@ -26,11 +29,10 @@ const TEAM_MAP = {
   par: { abbr: "PAR", names: ["Paraguay"] },
 };
 
-const STG  = { r32: 1, r16: 2, qf: 3, sf: 4, final: 5 }; // stageIndex when a team REACHES this round
-const NEXT = { r32: 2, r16: 3, qf: 4, sf: 5, final: 6 }; // stageIndex when a team WINS this round
+const STG  = { r32: 1, r16: 2, qf: 3, sf: 4, final: 5 }; // stageIndex when REACHING a round
+const NEXT = { r32: 2, r16: 3, qf: 4, sf: 5, final: 6 }; // stageIndex when WINNING a round
 
 function norm(s) { return (s || "").toString().toLowerCase().replace(/[^a-zа-яё0-9]/gi, ""); }
-
 function buildIndex() {
   const idx = {};
   for (const [id, info] of Object.entries(TEAM_MAP)) {
@@ -39,7 +41,6 @@ function buildIndex() {
   }
   return idx;
 }
-
 function matchTeam(idx, team) {
   if (!team) return null;
   if (team.abbreviation && idx[team.abbreviation.toLowerCase()]) return idx[team.abbreviation.toLowerCase()];
@@ -49,7 +50,6 @@ function matchTeam(idx, team) {
   }
   return null;
 }
-
 function getStat(entry, keys) {
   const stats = (entry && entry.stats) || [];
   for (const st of stats) {
@@ -61,7 +61,6 @@ function getStat(entry, keys) {
   }
   return null;
 }
-
 function phaseFromCalendar(cal, dateStr) {
   if (!cal || !dateStr) return null;
   const d = new Date(dateStr).getTime();
@@ -74,15 +73,27 @@ function phaseFromCalendar(cal, dateStr) {
     else if (/semi/.test(label)) phase = "sf";
     else if (/3rd|third|place/.test(label)) phase = "third";
     else if (/final/.test(label)) phase = "final";
-    if (!phase) continue; // group or unknown
+    if (!phase) continue;
     const s = new Date(e.startDate).getTime();
     const en = new Date(e.endDate).getTime();
     if (d >= s && d < en) return phase;
   }
   return null;
 }
+// phase of a knockout event: prefer season.slug, fall back to calendar by date
+function phaseOf(ev, cal) {
+  const slug = (ev && ev.season && ev.season.slug) || "";
+  if (/round-?of-?32|roundof32/.test(slug)) return "r32";
+  if (/round-?of-?16|roundof16/.test(slug)) return "r16";
+  if (/quarter/.test(slug)) return "qf";
+  if (/semi/.test(slug)) return "sf";
+  if (/third|3rd/.test(slug)) return "third";
+  if (/(^|[^a-z])final/.test(slug)) return "final";
+  const date = ev.date || (ev.competitions && ev.competitions[0] && ev.competitions[0].date);
+  return phaseFromCalendar(cal, date);
+}
 
-// Pure derivation. standings = ESPN standings json, scoreboard = ESPN knockout scoreboard json.
+// standings = ESPN standings json; scoreboard = { leagues:[{calendar:[{entries}]}], events:[...] }
 function derive(standings, scoreboard) {
   const idx = buildIndex();
   const out = { updatedAt: new Date().toISOString(), tournamentStarted: false, teams: {} };
@@ -94,7 +105,7 @@ function derive(standings, scoreboard) {
     };
   }
 
-  // ---------- GROUP STAGE (from standings) ----------
+  // ---------- GROUP STAGE ----------
   const groups = (standings && standings.children) || [];
   for (const g of groups) {
     const entries = (g.standings && g.standings.entries) || [];
@@ -108,7 +119,7 @@ function derive(standings, scoreboard) {
       const gp = getStat(e, ["gamesPlayed", "gamesplayed", "GP"]) || 0;
       const points = getStat(e, ["points", "P"]);
       const note = (e.note && e.note.description) || null;
-      const noteAdv = note && /advance|best/i.test(note);
+      const noteAdv = note && /advance|best|qualif/i.test(note);
       const noteElim = note && /eliminat/i.test(note);
       const t = out.teams[id];
       t.found = true; t.group = g.name; t.rank = rank; t.gp = gp; t.points = points;
@@ -118,9 +129,8 @@ function derive(standings, scoreboard) {
     }
   }
 
-  // ---------- KNOCKOUTS (from scoreboard) ----------
-  const cal =
-    scoreboard && scoreboard.leagues && scoreboard.leagues[0] &&
+  // ---------- KNOCKOUTS ----------
+  const cal = scoreboard && scoreboard.leagues && scoreboard.leagues[0] &&
     scoreboard.leagues[0].calendar && scoreboard.leagues[0].calendar[0] &&
     scoreboard.leagues[0].calendar[0].entries;
   const events = (scoreboard && scoreboard.events) || [];
@@ -128,7 +138,7 @@ function derive(standings, scoreboard) {
   for (const ev of events) {
     const comp = ev.competitions && ev.competitions[0];
     if (!comp) continue;
-    const phase = phaseFromCalendar(cal, ev.date || comp.date);
+    const phase = phaseOf(ev, cal);
     if (!phase || phase === "third") continue; // ignore group + 3rd-place match
     const completed = !!(comp.status && comp.status.type && comp.status.type.completed);
     if (completed) out.tournamentStarted = true;
@@ -139,7 +149,7 @@ function derive(standings, scoreboard) {
       ko[id].reached = Math.max(ko[id].reached, STG[phase]);
       if (completed) {
         if (c.winner === true) ko[id].reached = Math.max(ko[id].reached, NEXT[phase]);
-        else if (c.winner === false) { ko[id].eliminated = true; }
+        else if (c.winner === false) ko[id].eliminated = true;
       }
     }
   }
@@ -152,42 +162,62 @@ function derive(standings, scoreboard) {
     if (k) stage = Math.max(stage, k.reached);
     t.stageIndex = stage;
     t.groupWinner = !!(t.groupComplete && Math.round(t.rank) === 1 && t._advanced);
-
     const koElim = !!(k && k.eliminated && stage < 6);
     const eliminated = t._groupEliminated || koElim;
-
     if (stage === 6) t.status = "champion";
     else if (eliminated) t.status = "out";
     else if (t._advanced || (k && k.reached > 0)) t.status = "alive";
     else if (t.found && !t.groupComplete) t.status = "pending";
     else if (t.found && t.groupComplete && !t._advanced) t.status = "out";
     else t.status = t.found ? "pending" : "unknown";
-
     delete t._advanced;
     delete t._groupEliminated;
   }
   return out;
 }
 
+function knockoutDates() {
+  const out = [];
+  for (let t = KO_START; t <= KO_END; t += 86400000) {
+    const d = new Date(t);
+    out.push("" + d.getUTCFullYear() +
+      String(d.getUTCMonth() + 1).padStart(2, "0") +
+      String(d.getUTCDate()).padStart(2, "0"));
+  }
+  return out;
+}
+async function getJSON(url) {
+  try { const r = await fetch(url); return await r.json(); } catch (e) { return null; }
+}
+
 async function handler(req, res) {
+  const ct = "application/json; charset=utf-8";
   try {
-    const [stRes, sbRes] = await Promise.all([fetch(ESPN_STANDINGS), fetch(ESPN_KNOCKOUTS)]);
-    const standings = await stRes.json();
-    const scoreboard = await sbRes.json();
-    const data = derive(standings, scoreboard);
-    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    const dates = knockoutDates();
+    const results = await Promise.all([
+      getJSON(ESPN_STANDINGS),
+      ...dates.map((dt) => getJSON(ESPN_SCOREBOARD + "?dates=" + dt)),
+    ]);
+    const standings = results[0] || {};
+    const seen = new Set();
+    let events = [], cal = null;
+    for (let i = 1; i < results.length; i++) {
+      const sb = results[i];
+      if (!sb) continue;
+      if (!cal) { try { cal = sb.leagues[0].calendar[0].entries; } catch (e) {} }
+      if (Array.isArray(sb.events)) {
+        for (const ev of sb.events) { if (ev && ev.id && !seen.has(ev.id)) { seen.add(ev.id); events.push(ev); } }
+      }
+    }
+    const data = derive(standings, { leagues: cal ? [{ calendar: [{ entries: cal }] }] : [], events });
     res.statusCode = 200;
+    res.setHeader("content-type", ct);
+    res.setHeader("cache-control", "public, s-maxage=60, stale-while-revalidate=300");
     res.end(JSON.stringify(data));
   } catch (e) {
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.statusCode = 200;
-    res.end(JSON.stringify({
-      error: String((e && e.message) || e),
-      updatedAt: new Date().toISOString(),
-      tournamentStarted: false,
-      teams: {},
-    }));
+    res.setHeader("content-type", ct);
+    res.end(JSON.stringify({ error: String((e && e.message) || e), updatedAt: new Date().toISOString(), tournamentStarted: false, teams: {} }));
   }
 }
 
