@@ -135,15 +135,27 @@ function derive(standings, scoreboard) {
     scoreboard.leagues[0].calendar[0].entries;
   const events = (scoreboard && scoreboard.events) || [];
   const ko = {};
+  const matches = [];
   for (const ev of events) {
     const comp = ev.competitions && ev.competitions[0];
     if (!comp) continue;
     const phase = phaseOf(ev, cal);
     if (!phase || phase === "third") continue; // ignore group + 3rd-place match
-    const completed = !!(comp.status && comp.status.type && comp.status.type.completed);
+    const stype = (comp.status && comp.status.type) || {};
+    const completed = !!stype.completed;
     if (completed) out.tournamentStarted = true;
+    const competitors = [];
     for (const c of comp.competitors || []) {
-      const id = matchTeam(idx, c.team);
+      const team = c.team || {};
+      const id = matchTeam(idx, team);
+      competitors.push({
+        id: id || null,
+        name: team.shortDisplayName || team.name || team.displayName || "?",
+        abbr: team.abbreviation || "",
+        score: c.score != null ? String(c.score) : "",
+        winner: c.winner === true,
+        placeholder: team.isActive === false,
+      });
       if (!id) continue;
       ko[id] = ko[id] || { reached: 0, eliminated: false };
       ko[id].reached = Math.max(ko[id].reached, STG[phase]);
@@ -152,7 +164,10 @@ function derive(standings, scoreboard) {
         else if (c.winner === false) ko[id].eliminated = true;
       }
     }
+    matches.push({ round: phase, date: ev.date || comp.date || "", state: stype.state || "pre", completed, competitors });
   }
+  matches.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  out.matches = matches;
 
   // ---------- COMBINE ----------
   for (const id of Object.keys(TEAM_MAP)) {
