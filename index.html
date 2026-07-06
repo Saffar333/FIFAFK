@@ -435,98 +435,110 @@ function updateStats(k,f){
   }).join("");
 }
 
-/* ---------- СЕТКА ПЛЕЙ-ОФФ (двусторонняя) ---------- */
-const ROUND_LABELS=[["r32","1/16"],["r16","1/8"],["qf","1/4"],["sf","1/2"],["final","Финал"]];
+/* ---------- СЕТКА ПЛЕЙ-ОФФ (реальное дерево, двустороннее) ---------- */
+const RLBL={r32:"1/16",r16:"1/8",qf:"1/4",sf:"1/2",final:"Финал"};
+const RND_ORDER=["r32","r16","qf","sf","final"];
 function rowH(){ return window.innerWidth<=430 ? 40 : (window.innerWidth<=760 ? 42 : 56); }
-let BRK_ORDER=[];
+let BRK_NODES=[];
 function esc(s){ return (s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 function ckey(c){ return (c && (c.id||c.abbr||c.name)) || ""; }
-function winnerOf(m){ const w=(m.competitors||[]).find(c=>c.winner); return w?ckey(w):null; }
+function winnerC(m){ return (m.competitors||[]).find(c=>c.winner)||null; }
+function phLabel(ref,name){ let mm; ref=ref||"";
+  if((mm=ref.match(/round of 16\s*(\d+)/i))) return "1/8 №"+mm[1];
+  if((mm=ref.match(/quarterfinal\s*(\d+)/i))) return "1/4 №"+mm[1];
+  if((mm=ref.match(/semifinal\s*(\d+)/i))) return "1/2 №"+mm[1];
+  if((mm=ref.match(/round of 32\s*(\d+)/i))) return "1/16 №"+mm[1];
+  return name; }
 function updateBracket(){
   const el=document.getElementById("bracket"); if(!el) return;
   const matches=(LIVE&&Array.isArray(LIVE.matches))?LIVE.matches:[];
-  if(!matches.length){ el.style.height=""; BRK_ORDER=[]; el.innerHTML='<div class="bracket-empty">Сетка появится с началом плей-офф.</div>'; return; }
-  const by={}; for(const m of matches){ (by[m.round]=by[m.round]||[]).push(m); }
-  // упорядочить раунды деревом (следующий матч — напротив «кормильцев»)
-  BRK_ORDER=[]; let prev=null;
-  for(const [key,label] of ROUND_LABELS){
-    let ms=by[key]; if(!ms||!ms.length) continue;
-    ms=ms.slice();
-    if(prev){
-      const pos={}; prev.forEach((m,i)=>{ const k=winnerOf(m); if(k) pos[k]=i; });
-      ms.forEach(m=>{ const ps=[]; (m.competitors||[]).forEach(c=>{ const k=ckey(c); if(k&&pos[k]!=null) ps.push(pos[k]); });
-        m.__slot = ps.length ? ps.reduce((a,b)=>a+b,0)/ps.length : 1e9; });
-      ms.sort((a,b)=>a.__slot-b.__slot);
+  if(!matches.length){ el.style.height=""; BRK_NODES=[]; el.innerHTML='<div class="bracket-empty">Сетка появится с началом плей-офф.</div>'; return; }
+  const R={}; RND_ORDER.forEach(r=>R[r]=[]);
+  for(const m of matches){ if(R[m.round]) R[m.round].push(m); }
+  RND_ORDER.forEach(r=>R[r].sort((a,b)=>(+a.id||0)-(+b.id||0)));
+  const nodes={}; BRK_NODES=[];
+  RND_ORDER.forEach(r=>R[r].forEach(m=>{ const n={round:r,id:m.id,m,children:[],side:null,pos:0}; nodes[m.id]=n; BRK_NODES.push(n); }));
+  const listOf=r=>R[r].map(m=>nodes[m.id]);
+  function feeders(node){
+    const ri=RND_ORDER.indexOf(node.round), prev=RND_ORDER[ri-1]; if(!prev||!R[prev].length) return [];
+    const list=listOf(prev), wmap={}; list.forEach(n=>{ const w=winnerC(n.m); if(w) wmap[ckey(w)]=n; });
+    const kids=[];
+    for(const c of (node.m.competitors||[])){
+      let child=null,mm,ref=c.ref||"";
+      if(c.placeholder){
+        if((mm=ref.match(/round of 16\s*(\d+)/i))&&prev==="r16") child=list[+mm[1]-1];
+        else if((mm=ref.match(/quarterfinal\s*(\d+)/i))&&prev==="qf") child=list[+mm[1]-1];
+        else if((mm=ref.match(/semifinal\s*(\d+)/i))&&prev==="sf") child=list[+mm[1]-1];
+        else if((mm=ref.match(/round of 32\s*(\d+)/i))&&prev==="r32") child=list[+mm[1]-1];
+      } else child=wmap[ckey(c)]||null;
+      if(child) kids.push(child);
     }
-    BRK_ORDER.push({key,label,matches:ms}); prev=ms;
+    return kids;
   }
-  // сгруппировать 1/16, чтобы кормильцы каждого матча 1/8 шли подряд
-  if(BRK_ORDER.length>=2){
-    const r0=BRK_ORDER[0].matches, r1=BRK_ORDER[1].matches;
-    const key2idx={}; r0.forEach((m,i)=>{ const k=winnerOf(m); if(k) key2idx[k]=i; });
-    const used=new Set(), nr0=[];
-    for(const n of r1){ for(const c of (n.competitors||[])){ const i=key2idx[ckey(c)]; if(i!=null && !used.has(i)){ used.add(i); nr0.push(r0[i]); } } }
-    r0.forEach((m,i)=>{ if(!used.has(i)) nr0.push(m); });
-    BRK_ORDER[0].matches=nr0;
-  }
-  // двусторонняя раскладка: левые половины → центр (финал) ← правые половины
-  const apex=BRK_ORDER.length-1;
+  RND_ORDER.forEach((r,ri)=>{ if(ri>0) listOf(r).forEach(n=>{ n.children=feeders(n); }); });
+  const root=R.final.length?nodes[R.final[0].id]:null;
+  const twoSided=root && root.children.length===2;
   const columns=[];
-  for(let r=0;r<apex;r++){ const ms=BRK_ORDER[r].matches, half=Math.ceil(ms.length/2);
-    columns.push({label:BRK_ORDER[r].label, side:"L", items: ms.slice(0,half).map((m,k)=>({m,r,i:k})) }); }
-  if(apex>=0){ const ms=BRK_ORDER[apex].matches;
-    columns.push({label:BRK_ORDER[apex].label, side:"C", items: ms.map((m,k)=>({m,r:apex,i:k})) }); }
-  for(let r=apex-1;r>=0;r--){ const ms=BRK_ORDER[r].matches, half=Math.ceil(ms.length/2);
-    columns.push({label:BRK_ORDER[r].label, side:"R", items: ms.slice(half).map((m,k)=>({m,r,i:half+k})) }); }
+  if(twoSided){
+    const setSide=(n,s)=>{ if(!n||n.side)return; n.side=s; n.children.forEach(c=>setSide(c,s)); };
+    setSide(root.children[0],"L"); setSide(root.children[1],"R"); root.side="C";
+    let cnt; const dfs=n=>{ if(!n)return; if(!n.children.length){ n.pos=cnt++; return; } n.children.forEach(dfs); n.pos=n.children.reduce((a,k)=>a+k.pos,0)/n.children.length; };
+    cnt=0; dfs(root.children[0]); cnt=0; dfs(root.children[1]);
+    const four=["r32","r16","qf","sf"];
+    const bySR=(side,rd)=>BRK_NODES.filter(n=>n.side===side&&n.round===rd).sort((a,b)=>a.pos-b.pos);
+    for(const rd of four){ const ns=bySR("L",rd); if(ns.length) columns.push({label:RLBL[rd],side:"L",nodes:ns}); }
+    columns.push({label:"Финал",side:"C",nodes:[root]});
+    for(let i=four.length-1;i>=0;i--){ const ns=bySR("R",four[i]); if(ns.length) columns.push({label:RLBL[four[i]],side:"R",nodes:ns}); }
+  } else {
+    for(const rd of RND_ORDER){ const ns=listOf(rd); if(ns.length){ ns.forEach((n,i)=>n.pos=i); columns.push({label:RLBL[rd],side:"L",nodes:ns}); } }
+  }
   let maxCount=0, html="";
   for(const col of columns){
-    maxCount=Math.max(maxCount,col.items.length);
-    html+=`<div class="round side-${col.side}"><h4>${col.label}<span>${col.items.length}</span></h4><div class="rcol">`;
-    for(const it of col.items) html+=matchCard(it.m,it.r,it.i);
+    maxCount=Math.max(maxCount,col.nodes.length);
+    html+=`<div class="round side-${col.side}"><h4>${col.label}<span>${col.nodes.length}</span></h4><div class="rcol">`;
+    for(const n of col.nodes) html+=matchCard(n);
     html+=`</div></div>`;
   }
   el.innerHTML=html;
   el.style.height=(Math.max(1,maxCount)*rowH()+28)+"px";
   requestAnimationFrame(drawConnectors);
 }
-function matchCard(m,r,i){ return `<div class="match${m.state==="in"?" live":""}" data-r="${r}" data-i="${i}">${(m.competitors||[]).map(c=>compRow(c,m)).join("")}</div>`; }
+function matchCard(n){ const m=n.m;
+  return `<div class="match${m.state==="in"?" live":""}" data-mid="${esc(n.id)}">${(m.competitors||[]).map(c=>compRow(c,m)).join("")}</div>`; }
 function compRow(c,m){
   const own=c.id?PLAYER_OF[c.id]:null, meta=c.id?TEAM_BY_ID[c.id]:null;
   const cls=[own==="kostya"?"k":own==="fargat"?"f":"", c.winner?"win":"", (m.completed&&!c.winner)?"lose":""].filter(Boolean).join(" ");
   const fl=meta?`<span class="fl">${meta.flag}</span>`:"";
-  const nm=meta?esc(meta.name):(c.placeholder?`<span class="ph">${esc(c.name)}</span>`:esc(c.name));
+  const nm=meta?esc(meta.name):(c.placeholder?`<span class="ph">${esc(phLabel(c.ref,c.name))}</span>`:esc(c.name));
   const sc=((m.completed||m.state==="in")&&c.score!=="")?`<span class="sc">${esc(c.score)}</span>`:"";
   return `<div class="brow ${cls}">${fl}<span class="bn">${nm}</span>${sc}</div>`;
 }
-function elAt(el,r,i){ return el.querySelector('.match[data-r="'+r+'"][data-i="'+i+'"]'); }
 function drawConnectors(){
   const el=document.getElementById("bracket"); if(!el) return;
   const old=el.querySelector("svg.links"); if(old) old.remove();
-  if(BRK_ORDER.length<2) return;
+  if(!BRK_NODES.length) return;
   const NS="http://www.w3.org/2000/svg";
   const svg=document.createElementNS(NS,"svg");
   svg.setAttribute("class","links");
   svg.setAttribute("width",el.scrollWidth); svg.setAttribute("height",el.scrollHeight);
-  for(let r=0;r<BRK_ORDER.length-1;r++){
-    const curData=BRK_ORDER[r].matches, nxtData=BRK_ORDER[r+1].matches;
-    const wk={}; curData.forEach((m,i)=>{ const k=winnerOf(m); if(k) wk[k]=i; });
-    nxtData.forEach((nm,j)=>{
-      (nm.competitors||[]).forEach(c=>{
-        const k=ckey(c); if(!k) return; const fi=wk[k]; if(fi==null) return;
-        const a=elAt(el,r,fi), b=elAt(el,r+1,j); if(!a||!b) return;
-        const ac=a.offsetLeft+a.offsetWidth/2, bc=b.offsetLeft+b.offsetWidth/2;
-        const x1=ac<bc ? a.offsetLeft+a.offsetWidth : a.offsetLeft;
-        const x2=ac<bc ? b.offsetLeft : b.offsetLeft+b.offsetWidth;
-        const y1=a.offsetTop+a.offsetHeight/2, y2=b.offsetTop+b.offsetHeight/2;
-        const mx=Math.round((x1+x2)/2);
-        const p=document.createElementNS(NS,"path");
-        p.setAttribute("d",`M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`);
-        p.setAttribute("fill","none"); p.setAttribute("stroke","#3d4757"); p.setAttribute("stroke-width","2");
-        svg.appendChild(p);
-      });
-    });
+  const elm=id=>el.querySelector('.match[data-mid="'+id+'"]');
+  let drew=0;
+  for(const n of BRK_NODES){
+    const b=elm(n.id); if(!b) continue;
+    for(const child of n.children){
+      const a=elm(child.id); if(!a) continue;
+      const ac=a.offsetLeft+a.offsetWidth/2, bc=b.offsetLeft+b.offsetWidth/2;
+      const x1=ac<bc? a.offsetLeft+a.offsetWidth : a.offsetLeft;
+      const x2=ac<bc? b.offsetLeft : b.offsetLeft+b.offsetWidth;
+      const y1=a.offsetTop+a.offsetHeight/2, y2=b.offsetTop+b.offsetHeight/2;
+      const mx=Math.round((x1+x2)/2);
+      const p=document.createElementNS(NS,"path");
+      p.setAttribute("d",`M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`);
+      p.setAttribute("fill","none"); p.setAttribute("stroke","#3d4757"); p.setAttribute("stroke-width","2");
+      svg.appendChild(p); drew++;
+    }
   }
-  el.insertBefore(svg, el.firstChild);
+  if(drew) el.insertBefore(svg, el.firstChild);
 }
 window.addEventListener("resize",()=>{ clearTimeout(window.__brkT); window.__brkT=setTimeout(updateBracket,200); });
 
