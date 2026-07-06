@@ -139,15 +139,16 @@
   button.btn.danger:hover{border-color:var(--bad)}
   footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;line-height:1.6}
 
-  /* сетка плей-офф */
+  /* сетка плей-офф (дерево с линиями-связками) */
   .bracket-wrap h3{margin:0 0 12px}
-  .bracket{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch}
-  .round{flex:0 0 auto;min-width:186px;max-width:210px}
-  .round>h4{margin:0 0 8px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:flex;justify-content:space-between}
+  .bracket{position:relative;display:flex;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch}
+  .round{display:flex;flex-direction:column;min-width:172px;padding:0 16px}
+  .round>h4{margin:0 0 8px;height:16px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:flex;justify-content:space-between}
   .round>h4 span{color:var(--txt);opacity:.45}
-  .match{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:5px 8px;margin-bottom:8px}
+  .rcol{display:flex;flex-direction:column;justify-content:space-around;flex:1}
+  .match{position:relative;z-index:1;height:46px;display:flex;flex-direction:column;justify-content:center;gap:2px;background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:0 8px}
   .match.live{border-color:var(--warn);box-shadow:0 0 0 1px rgba(232,183,48,.25)}
-  .brow{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0}
+  .brow{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;line-height:1.15}
   .brow .bn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .brow .sc{font-variant-numeric:tabular-nums;font-weight:700;opacity:.85;flex:none}
   .brow.k{color:var(--kostya);font-weight:700}
@@ -156,6 +157,8 @@
   .brow.win .sc{color:var(--good)}
   .brow.lose{opacity:.45}
   .brow .ph{color:var(--muted);font-style:italic;font-weight:400}
+  .bracket svg.links{position:absolute;top:0;left:0;pointer-events:none;z-index:0}
+  .bracket-empty{color:var(--muted);font-size:13px;padding:6px 2px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#0a1622;color:#fff;
     border:1px solid var(--accent);border-radius:12px;padding:11px 18px;font-size:14px;opacity:0;pointer-events:none;
     transition:all .3s;z-index:50;box-shadow:var(--shadow);max-width:90vw;text-align:center}
@@ -411,36 +414,89 @@ function updateStats(k,f){
   }).join("");
 }
 
-/* ---------- СЕТКА ПЛЕЙ-ОФФ ---------- */
+/* ---------- СЕТКА ПЛЕЙ-ОФФ (дерево) ---------- */
 const ROUND_LABELS=[["r32","1/16 финала"],["r16","1/8 финала"],["qf","1/4 финала"],["sf","1/2 финала"],["final","Финал"]];
+const BRK_ROWH=58;
+let BRK_ORDER=[];
 function esc(s){ return (s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function ckey(c){ return (c && (c.id||c.abbr||c.name)) || ""; }
+function winnerOf(m){ const w=(m.competitors||[]).find(c=>c.winner); return w?ckey(w):null; }
 function updateBracket(){
   const el=document.getElementById("bracket"); if(!el) return;
   const matches=(LIVE&&Array.isArray(LIVE.matches))?LIVE.matches:[];
-  if(!matches.length){ el.innerHTML='<div class="bracket-empty" style="color:var(--muted);font-size:13px">Сетка появится с началом плей-офф.</div>'; return; }
+  if(!matches.length){ el.style.height=""; BRK_ORDER=[]; el.innerHTML='<div class="bracket-empty">Сетка появится с началом плей-офф.</div>'; return; }
   const by={}; for(const m of matches){ (by[m.round]=by[m.round]||[]).push(m); }
-  let html="";
+  // строим дерево: каждый следующий матч встаёт напротив своих «кормильцев»
+  BRK_ORDER=[]; let prev=null;
   for(const [key,label] of ROUND_LABELS){
-    const ms=by[key]; if(!ms||!ms.length) continue;
-    html+=`<div class="round"><h4>${label}<span>${ms.length}</span></h4>`;
-    for(const m of ms) html+=matchCard(m);
-    html+=`</div>`;
+    let ms=by[key]; if(!ms||!ms.length) continue;
+    ms=ms.slice();
+    if(prev){
+      const pos={}; prev.forEach((m,i)=>{ const k=winnerOf(m); if(k) pos[k]=i; });
+      ms.forEach(m=>{ const ps=[]; (m.competitors||[]).forEach(c=>{ const k=ckey(c); if(k&&pos[k]!=null) ps.push(pos[k]); });
+        m.__slot = ps.length ? ps.reduce((a,b)=>a+b,0)/ps.length : 1e9; });
+      ms.sort((a,b)=>a.__slot-b.__slot);
+    }
+    BRK_ORDER.push({key,label,matches:ms}); prev=ms;
   }
-  el.innerHTML=html||'<div class="bracket-empty" style="color:var(--muted);font-size:13px">Нет данных.</div>';
+  // выровнять 1/16 так, чтобы кормильцы каждого матча 1/8 шли подряд (линии без пересечений)
+  if(BRK_ORDER.length>=2){
+    const r0=BRK_ORDER[0].matches, r1=BRK_ORDER[1].matches;
+    const key2idx={}; r0.forEach((m,i)=>{ const k=winnerOf(m); if(k) key2idx[k]=i; });
+    const used=new Set(), nr0=[];
+    for(const n of r1){ for(const c of (n.competitors||[])){ const i=key2idx[ckey(c)]; if(i!=null && !used.has(i)){ used.add(i); nr0.push(r0[i]); } } }
+    r0.forEach((m,i)=>{ if(!used.has(i)) nr0.push(m); });
+    BRK_ORDER[0].matches=nr0;
+  }
+  let maxCount=0, html="";
+  for(const R of BRK_ORDER){
+    maxCount=Math.max(maxCount,R.matches.length);
+    html+=`<div class="round"><h4>${R.label}<span>${R.matches.length}</span></h4><div class="rcol">`;
+    for(const m of R.matches) html+=matchCard(m);
+    html+=`</div></div>`;
+  }
+  el.innerHTML=html;
+  el.style.height=(maxCount*BRK_ROWH+30)+"px";
+  requestAnimationFrame(drawConnectors);
 }
-function matchCard(m){
-  const rows=(m.competitors||[]).map(c=>compRow(c,m)).join("");
-  return `<div class="match${m.state==="in"?" live":""}">${rows}</div>`;
-}
+function matchCard(m){ return `<div class="match${m.state==="in"?" live":""}">${(m.competitors||[]).map(c=>compRow(c,m)).join("")}</div>`; }
 function compRow(c,m){
-  const own=c.id?PLAYER_OF[c.id]:null;
-  const meta=c.id?TEAM_BY_ID[c.id]:null;
+  const own=c.id?PLAYER_OF[c.id]:null, meta=c.id?TEAM_BY_ID[c.id]:null;
   const cls=[own==="kostya"?"k":own==="fargat"?"f":"", c.winner?"win":"", (m.completed&&!c.winner)?"lose":""].filter(Boolean).join(" ");
   const name=meta?`${meta.flag} ${meta.name}`:(c.placeholder?`<span class="ph">${esc(c.name)}</span>`:esc(c.name));
-  const showScore=m.completed||m.state==="in";
-  const sc=(showScore&&c.score!=="")?`<span class="sc">${esc(c.score)}</span>`:"";
+  const sc=((m.completed||m.state==="in")&&c.score!=="")?`<span class="sc">${esc(c.score)}</span>`:"";
   return `<div class="brow ${cls}"><span class="bn">${name}</span>${sc}</div>`;
 }
+function drawConnectors(){
+  const el=document.getElementById("bracket"); if(!el) return;
+  const old=el.querySelector("svg.links"); if(old) old.remove();
+  const roundsEl=[...el.querySelectorAll(".round")];
+  if(roundsEl.length<2 || BRK_ORDER.length<2) return;
+  const NS="http://www.w3.org/2000/svg";
+  const svg=document.createElementNS(NS,"svg");
+  svg.setAttribute("class","links");
+  svg.setAttribute("width",el.scrollWidth); svg.setAttribute("height",el.scrollHeight);
+  for(let r=0;r<BRK_ORDER.length-1;r++){
+    const curData=BRK_ORDER[r].matches, nxtData=BRK_ORDER[r+1].matches;
+    const curEl=[...roundsEl[r].querySelectorAll(".match")], nxtEl=[...roundsEl[r+1].querySelectorAll(".match")];
+    const wk={}; curData.forEach((m,i)=>{ const k=winnerOf(m); if(k) wk[k]=i; });
+    nxtData.forEach((nm,j)=>{
+      (nm.competitors||[]).forEach(c=>{
+        const k=ckey(c); if(!k) return; const fi=wk[k]; if(fi==null) return;
+        const a=curEl[fi], b=nxtEl[j]; if(!a||!b) return;
+        const x1=a.offsetLeft+a.offsetWidth, y1=a.offsetTop+a.offsetHeight/2;
+        const x2=b.offsetLeft, y2=b.offsetTop+b.offsetHeight/2;
+        const mx=Math.round((x1+x2)/2);
+        const p=document.createElementNS(NS,"path");
+        p.setAttribute("d",`M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`);
+        p.setAttribute("fill","none"); p.setAttribute("stroke","#3d4757"); p.setAttribute("stroke-width","2");
+        svg.appendChild(p);
+      });
+    });
+  }
+  el.insertBefore(svg, el.firstChild);
+}
+window.addEventListener("resize",()=>{ clearTimeout(window.__brkT); window.__brkT=setTimeout(drawConnectors,180); });
 
 /* ---------- LIVE-ДАННЫЕ ---------- */
 function applyLiveToTeam(id){
