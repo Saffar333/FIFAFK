@@ -4,6 +4,20 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>ЧМ Турнир — Костя vs Фаргат</title>
+<meta name="theme-color" content="#0c0f14" />
+<meta name="description" content="Живой счёт турнира по ходу чемпионата мира 2026 — Костя vs Фаргат." />
+<!-- Open Graph / превью ссылки (Telegram, WhatsApp, и т.д.) -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="ЧМ-2026 Турнир — Костя vs Фаргат" />
+<meta property="og:description" content="Живой счёт по ходу чемпионата мира. Автоподсчёт очков в реальном времени." />
+<meta property="og:image" content="/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="ЧМ-2026 Турнир — Костя vs Фаргат" />
+<meta name="twitter:description" content="Живой счёт по ходу чемпионата мира." />
+<meta name="twitter:image" content="/og.png" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%86%3C/text%3E%3C/svg%3E" />
 <style>
   :root{
     --bg:#0c0f14; --bg2:#131820; --panel:#171d27; --panel2:#1d2530;
@@ -124,6 +138,24 @@
   button.btn:hover{border-color:var(--accent)} button.btn:active{transform:translateY(1px)}
   button.btn.danger:hover{border-color:var(--bad)}
   footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;line-height:1.6}
+
+  /* сетка плей-офф */
+  .bracket-wrap h3{margin:0 0 12px}
+  .bracket{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch}
+  .round{flex:0 0 auto;min-width:186px;max-width:210px}
+  .round>h4{margin:0 0 8px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:flex;justify-content:space-between}
+  .round>h4 span{color:var(--txt);opacity:.45}
+  .match{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:5px 8px;margin-bottom:8px}
+  .match.live{border-color:var(--warn);box-shadow:0 0 0 1px rgba(232,183,48,.25)}
+  .brow{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0}
+  .brow .bn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .brow .sc{font-variant-numeric:tabular-nums;font-weight:700;opacity:.85;flex:none}
+  .brow.k{color:var(--kostya);font-weight:700}
+  .brow.f{color:var(--fargat);font-weight:700}
+  .brow.win .bn{font-weight:800}
+  .brow.win .sc{color:var(--good)}
+  .brow.lose{opacity:.45}
+  .brow .ph{color:var(--muted);font-style:italic;font-weight:400}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#0a1622;color:#fff;
     border:1px solid var(--accent);border-radius:12px;padding:11px 18px;font-size:14px;opacity:0;pointer-events:none;
     transition:all .3s;z-index:50;box-shadow:var(--shadow);max-width:90vw;text-align:center}
@@ -154,6 +186,11 @@
       <thead><tr><th>Критерий</th><th class="colK" id="th-k">Костя</th><th class="colF" id="th-f">Фаргат</th></tr></thead>
       <tbody id="stats-body"></tbody>
     </table>
+  </div>
+
+  <div class="stats bracket-wrap">
+    <h3>Сетка плей-офф</h3>
+    <div class="bracket" id="bracket"></div>
   </div>
 
   <div class="legend">
@@ -221,6 +258,8 @@ const PLAYERS = {
 };
 const PLAYER_OF = {}; // teamId -> player key
 for(const p of ["kostya","fargat"]) for(const t of PLAYERS[p].teams) PLAYER_OF[t.id]=p;
+const TEAM_BY_ID = {}; // teamId -> {flag,name,player}
+for(const p of ["kostya","fargat"]) for(const t of PLAYERS[p].teams) TEAM_BY_ID[t.id]={flag:t.flag,name:t.name,player:p};
 
 const LS_STATE = "wc2026-state-v2";
 const LS_LIVE  = "wc2026-live-v2";
@@ -346,6 +385,7 @@ function recalc(){
   }
   updateLeader(sum.kostya,sum.fargat);
   updateStats(sum.kostya,sum.fargat);
+  updateBracket();
 }
 function updateLeader(k,f){
   const el=document.getElementById("leader"); const d=decide(k,f);
@@ -369,6 +409,37 @@ function updateStats(k,f){
     const ka=a>b?"num colK win":"num", fb=b>a?"num colF win":"num";
     return `<tr><td>${label}</td><td class="${ka}">${a}</td><td class="${fb}">${b}</td></tr>`;
   }).join("");
+}
+
+/* ---------- СЕТКА ПЛЕЙ-ОФФ ---------- */
+const ROUND_LABELS=[["r32","1/16 финала"],["r16","1/8 финала"],["qf","1/4 финала"],["sf","1/2 финала"],["final","Финал"]];
+function esc(s){ return (s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function updateBracket(){
+  const el=document.getElementById("bracket"); if(!el) return;
+  const matches=(LIVE&&Array.isArray(LIVE.matches))?LIVE.matches:[];
+  if(!matches.length){ el.innerHTML='<div class="bracket-empty" style="color:var(--muted);font-size:13px">Сетка появится с началом плей-офф.</div>'; return; }
+  const by={}; for(const m of matches){ (by[m.round]=by[m.round]||[]).push(m); }
+  let html="";
+  for(const [key,label] of ROUND_LABELS){
+    const ms=by[key]; if(!ms||!ms.length) continue;
+    html+=`<div class="round"><h4>${label}<span>${ms.length}</span></h4>`;
+    for(const m of ms) html+=matchCard(m);
+    html+=`</div>`;
+  }
+  el.innerHTML=html||'<div class="bracket-empty" style="color:var(--muted);font-size:13px">Нет данных.</div>';
+}
+function matchCard(m){
+  const rows=(m.competitors||[]).map(c=>compRow(c,m)).join("");
+  return `<div class="match${m.state==="in"?" live":""}">${rows}</div>`;
+}
+function compRow(c,m){
+  const own=c.id?PLAYER_OF[c.id]:null;
+  const meta=c.id?TEAM_BY_ID[c.id]:null;
+  const cls=[own==="kostya"?"k":own==="fargat"?"f":"", c.winner?"win":"", (m.completed&&!c.winner)?"lose":""].filter(Boolean).join(" ");
+  const name=meta?`${meta.flag} ${meta.name}`:(c.placeholder?`<span class="ph">${esc(c.name)}</span>`:esc(c.name));
+  const showScore=m.completed||m.state==="in";
+  const sc=(showScore&&c.score!=="")?`<span class="sc">${esc(c.score)}</span>`:"";
+  return `<div class="brow ${cls}"><span class="bn">${name}</span>${sc}</div>`;
 }
 
 /* ---------- LIVE-ДАННЫЕ ---------- */
