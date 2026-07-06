@@ -151,6 +151,7 @@ function derive(standings, scoreboard) {
       competitors.push({
         id: id || null,
         name: team.shortDisplayName || team.name || team.displayName || "?",
+        ref: team.displayName || "",
         abbr: team.abbreviation || "",
         score: c.score != null ? String(c.score) : "",
         winner: c.winner === true,
@@ -164,7 +165,7 @@ function derive(standings, scoreboard) {
         else if (c.winner === false) ko[id].eliminated = true;
       }
     }
-    matches.push({ round: phase, date: ev.date || comp.date || "", state: stype.state || "pre", completed, competitors });
+    matches.push({ round: phase, id: ev.id || "", date: ev.date || comp.date || "", state: stype.state || "pre", completed, competitors });
   }
   matches.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   out.matches = matches;
