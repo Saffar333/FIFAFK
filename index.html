@@ -139,17 +139,19 @@
   button.btn.danger:hover{border-color:var(--bad)}
   footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;line-height:1.6}
 
-  /* сетка плей-офф (дерево с линиями-связками) */
+  /* сетка плей-офф (двусторонняя, как настоящая) */
   .bracket-wrap h3{margin:0 0 12px}
   .bracket{position:relative;display:flex;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch}
-  .round{display:flex;flex-direction:column;min-width:172px;padding:0 16px}
-  .round>h4{margin:0 0 8px;height:16px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:flex;justify-content:space-between}
+  .round{display:flex;flex-direction:column;min-width:148px;padding:0 13px}
+  .round>h4{margin:0 0 8px;height:16px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:flex;justify-content:space-between;gap:6px}
   .round>h4 span{color:var(--txt);opacity:.45}
+  .round.side-C>h4{justify-content:center;color:var(--gold)}
   .rcol{display:flex;flex-direction:column;justify-content:space-around;flex:1}
   .match{position:relative;z-index:1;height:46px;display:flex;flex-direction:column;justify-content:center;gap:2px;background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:0 8px}
   .match.live{border-color:var(--warn);box-shadow:0 0 0 1px rgba(232,183,48,.25)}
-  .brow{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;line-height:1.15}
-  .brow .bn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .round.side-C .match{border-color:var(--gold);background:rgba(245,197,66,.08)}
+  .brow{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;line-height:1.15}
+  .brow .bn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .brow .sc{font-variant-numeric:tabular-nums;font-weight:700;opacity:.85;flex:none}
   .brow.k{color:var(--kostya);font-weight:700}
   .brow.f{color:var(--fargat);font-weight:700}
@@ -157,6 +159,8 @@
   .brow.win .sc{color:var(--good)}
   .brow.lose{opacity:.45}
   .brow .ph{color:var(--muted);font-style:italic;font-weight:400}
+  .round.side-R .brow{flex-direction:row-reverse}
+  .round.side-R .brow .bn{text-align:right}
   .bracket svg.links{position:absolute;top:0;left:0;pointer-events:none;z-index:0}
   .bracket-empty{color:var(--muted);font-size:13px;padding:6px 2px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#0a1622;color:#fff;
@@ -414,8 +418,8 @@ function updateStats(k,f){
   }).join("");
 }
 
-/* ---------- СЕТКА ПЛЕЙ-ОФФ (дерево) ---------- */
-const ROUND_LABELS=[["r32","1/16 финала"],["r16","1/8 финала"],["qf","1/4 финала"],["sf","1/2 финала"],["final","Финал"]];
+/* ---------- СЕТКА ПЛЕЙ-ОФФ (двусторонняя) ---------- */
+const ROUND_LABELS=[["r32","1/16"],["r16","1/8"],["qf","1/4"],["sf","1/2"],["final","Финал"]];
 const BRK_ROWH=58;
 let BRK_ORDER=[];
 function esc(s){ return (s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
@@ -426,7 +430,7 @@ function updateBracket(){
   const matches=(LIVE&&Array.isArray(LIVE.matches))?LIVE.matches:[];
   if(!matches.length){ el.style.height=""; BRK_ORDER=[]; el.innerHTML='<div class="bracket-empty">Сетка появится с началом плей-офф.</div>'; return; }
   const by={}; for(const m of matches){ (by[m.round]=by[m.round]||[]).push(m); }
-  // строим дерево: каждый следующий матч встаёт напротив своих «кормильцев»
+  // упорядочить раунды деревом (следующий матч — напротив «кормильцев»)
   BRK_ORDER=[]; let prev=null;
   for(const [key,label] of ROUND_LABELS){
     let ms=by[key]; if(!ms||!ms.length) continue;
@@ -439,7 +443,7 @@ function updateBracket(){
     }
     BRK_ORDER.push({key,label,matches:ms}); prev=ms;
   }
-  // выровнять 1/16 так, чтобы кормильцы каждого матча 1/8 шли подряд (линии без пересечений)
+  // сгруппировать 1/16, чтобы кормильцы каждого матча 1/8 шли подряд
   if(BRK_ORDER.length>=2){
     const r0=BRK_ORDER[0].matches, r1=BRK_ORDER[1].matches;
     const key2idx={}; r0.forEach((m,i)=>{ const k=winnerOf(m); if(k) key2idx[k]=i; });
@@ -448,18 +452,27 @@ function updateBracket(){
     r0.forEach((m,i)=>{ if(!used.has(i)) nr0.push(m); });
     BRK_ORDER[0].matches=nr0;
   }
+  // двусторонняя раскладка: левые половины → центр (финал) ← правые половины
+  const apex=BRK_ORDER.length-1;
+  const columns=[];
+  for(let r=0;r<apex;r++){ const ms=BRK_ORDER[r].matches, half=Math.ceil(ms.length/2);
+    columns.push({label:BRK_ORDER[r].label, side:"L", items: ms.slice(0,half).map((m,k)=>({m,r,i:k})) }); }
+  if(apex>=0){ const ms=BRK_ORDER[apex].matches;
+    columns.push({label:BRK_ORDER[apex].label, side:"C", items: ms.map((m,k)=>({m,r:apex,i:k})) }); }
+  for(let r=apex-1;r>=0;r--){ const ms=BRK_ORDER[r].matches, half=Math.ceil(ms.length/2);
+    columns.push({label:BRK_ORDER[r].label, side:"R", items: ms.slice(half).map((m,k)=>({m,r,i:half+k})) }); }
   let maxCount=0, html="";
-  for(const R of BRK_ORDER){
-    maxCount=Math.max(maxCount,R.matches.length);
-    html+=`<div class="round"><h4>${R.label}<span>${R.matches.length}</span></h4><div class="rcol">`;
-    for(const m of R.matches) html+=matchCard(m);
+  for(const col of columns){
+    maxCount=Math.max(maxCount,col.items.length);
+    html+=`<div class="round side-${col.side}"><h4>${col.label}<span>${col.items.length}</span></h4><div class="rcol">`;
+    for(const it of col.items) html+=matchCard(it.m,it.r,it.i);
     html+=`</div></div>`;
   }
   el.innerHTML=html;
-  el.style.height=(maxCount*BRK_ROWH+30)+"px";
+  el.style.height=(Math.max(1,maxCount)*BRK_ROWH+30)+"px";
   requestAnimationFrame(drawConnectors);
 }
-function matchCard(m){ return `<div class="match${m.state==="in"?" live":""}">${(m.competitors||[]).map(c=>compRow(c,m)).join("")}</div>`; }
+function matchCard(m,r,i){ return `<div class="match${m.state==="in"?" live":""}" data-r="${r}" data-i="${i}">${(m.competitors||[]).map(c=>compRow(c,m)).join("")}</div>`; }
 function compRow(c,m){
   const own=c.id?PLAYER_OF[c.id]:null, meta=c.id?TEAM_BY_ID[c.id]:null;
   const cls=[own==="kostya"?"k":own==="fargat"?"f":"", c.winner?"win":"", (m.completed&&!c.winner)?"lose":""].filter(Boolean).join(" ");
@@ -467,25 +480,26 @@ function compRow(c,m){
   const sc=((m.completed||m.state==="in")&&c.score!=="")?`<span class="sc">${esc(c.score)}</span>`:"";
   return `<div class="brow ${cls}"><span class="bn">${name}</span>${sc}</div>`;
 }
+function elAt(el,r,i){ return el.querySelector('.match[data-r="'+r+'"][data-i="'+i+'"]'); }
 function drawConnectors(){
   const el=document.getElementById("bracket"); if(!el) return;
   const old=el.querySelector("svg.links"); if(old) old.remove();
-  const roundsEl=[...el.querySelectorAll(".round")];
-  if(roundsEl.length<2 || BRK_ORDER.length<2) return;
+  if(BRK_ORDER.length<2) return;
   const NS="http://www.w3.org/2000/svg";
   const svg=document.createElementNS(NS,"svg");
   svg.setAttribute("class","links");
   svg.setAttribute("width",el.scrollWidth); svg.setAttribute("height",el.scrollHeight);
   for(let r=0;r<BRK_ORDER.length-1;r++){
     const curData=BRK_ORDER[r].matches, nxtData=BRK_ORDER[r+1].matches;
-    const curEl=[...roundsEl[r].querySelectorAll(".match")], nxtEl=[...roundsEl[r+1].querySelectorAll(".match")];
     const wk={}; curData.forEach((m,i)=>{ const k=winnerOf(m); if(k) wk[k]=i; });
     nxtData.forEach((nm,j)=>{
       (nm.competitors||[]).forEach(c=>{
         const k=ckey(c); if(!k) return; const fi=wk[k]; if(fi==null) return;
-        const a=curEl[fi], b=nxtEl[j]; if(!a||!b) return;
-        const x1=a.offsetLeft+a.offsetWidth, y1=a.offsetTop+a.offsetHeight/2;
-        const x2=b.offsetLeft, y2=b.offsetTop+b.offsetHeight/2;
+        const a=elAt(el,r,fi), b=elAt(el,r+1,j); if(!a||!b) return;
+        const ac=a.offsetLeft+a.offsetWidth/2, bc=b.offsetLeft+b.offsetWidth/2;
+        const x1=ac<bc ? a.offsetLeft+a.offsetWidth : a.offsetLeft;
+        const x2=ac<bc ? b.offsetLeft : b.offsetLeft+b.offsetWidth;
+        const y1=a.offsetTop+a.offsetHeight/2, y2=b.offsetTop+b.offsetHeight/2;
         const mx=Math.round((x1+x2)/2);
         const p=document.createElementNS(NS,"path");
         p.setAttribute("d",`M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`);
