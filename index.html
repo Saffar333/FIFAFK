@@ -179,6 +179,28 @@
     .brow{font-size:9px}
     .brow .fl{font-size:10px}
   }
+  /* прогноз + сценарии */
+  .brk-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}
+  .mini.on{background:var(--accent);color:#04121f;border-color:var(--accent)}
+  .pred-score{font-size:14px}
+  .match.predmode{border-style:dashed}
+  .brow.pick{cursor:pointer;border-radius:6px}
+  .match.predmode .brow.pick:hover{background:rgba(61,169,252,.16)}
+  .brow.pick.win{background:rgba(52,199,123,.14)}
+  .brow .sc.ok{color:var(--good)}
+  #scenarios .sc-verdict{font-size:15px;font-weight:800;margin-bottom:8px}
+  #scenarios .sc-verdict.k{color:var(--kostya)} #scenarios .sc-verdict.f{color:var(--fargat)}
+  #scenarios .sc-pot{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  #scenarios .sc-pot b{color:var(--txt)}
+  #scenarios .sc-h{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;margin-bottom:8px}
+  #scenarios .sc-item{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:7px;font-size:13.5px;font-weight:600}
+  #scenarios .sc-item.derby{border-color:var(--gold)}
+  #scenarios .sc-r{color:var(--muted);font-size:11px;font-weight:700;margin-right:4px}
+  #scenarios .sc-imp{margin-top:3px;font-size:12px;color:var(--muted);font-weight:400}
+  #scenarios .derby-b,#scenarios .live-b{font-size:9.5px;font-weight:800;border-radius:4px;padding:1px 5px;margin-right:3px}
+  #scenarios .derby-b{background:var(--gold);color:#221c00}
+  #scenarios .live-b{background:var(--warn);color:#221c00}
+  #scenarios .sc-muted{color:var(--muted);font-size:13px}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#0a1622;color:#fff;
     border:1px solid var(--accent);border-radius:12px;padding:11px 18px;font-size:14px;opacity:0;pointer-events:none;
     transition:all .3s;z-index:50;box-shadow:var(--shadow);max-width:90vw;text-align:center}
@@ -213,8 +235,18 @@
 
   <div class="stats bracket-wrap">
     <h3>Сетка плей-офф</h3>
-    <div class="bracket-hint">↔ прокрутите по горизонтали, чтобы увидеть всю сетку</div>
+    <div class="brk-controls">
+      <button class="mini" id="predToggle">🔮 Режим прогноза</button>
+      <span class="pred-score" id="predScore" style="display:none"></span>
+      <button class="mini" id="predReset" style="display:none">↺ Сбросить прогноз</button>
+    </div>
+    <div class="bracket-hint">↔ прокрутите по горизонтали · в режиме прогноза кликайте предполагаемых победителей будущих матчей</div>
     <div class="bracket" id="bracket"></div>
+  </div>
+
+  <div class="stats" id="scenarios-wrap">
+    <h3>Сценарии победы</h3>
+    <div id="scenarios"></div>
   </div>
 
   <div class="legend">
@@ -410,6 +442,7 @@ function recalc(){
   updateLeader(sum.kostya,sum.fargat);
   updateStats(sum.kostya,sum.fargat);
   updateBracket();
+  updateScenarios();
 }
 function updateLeader(k,f){
   const el=document.getElementById("leader"); const d=decide(k,f);
@@ -435,11 +468,14 @@ function updateStats(k,f){
   }).join("");
 }
 
-/* ---------- СЕТКА ПЛЕЙ-ОФФ (реальное дерево, двустороннее) ---------- */
+/* ---------- СЕТКА ПЛЕЙ-ОФФ + ПРОГНОЗ «ЧТО ЕСЛИ» ---------- */
 const RLBL={r32:"1/16",r16:"1/8",qf:"1/4",sf:"1/2",final:"Финал"};
 const RND_ORDER=["r32","r16","qf","sf","final"];
+const STGI={r32:1,r16:2,qf:3,sf:4,final:5};
+const NEXTI={r32:2,r16:3,qf:4,sf:5,final:6};
+const ALLIDS=Object.keys(PLAYER_OF);
 function rowH(){ return window.innerWidth<=430 ? 40 : (window.innerWidth<=760 ? 42 : 56); }
-let BRK_NODES=[];
+let BRK_TREE=null, KEY2COMP={}, PREDICT=false, PRED={};
 function esc(s){ return (s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 function ckey(c){ return (c && (c.id||c.abbr||c.name)) || ""; }
 function winnerC(m){ return (m.competitors||[]).find(c=>c.winner)||null; }
@@ -449,48 +485,127 @@ function phLabel(ref,name){ let mm; ref=ref||"";
   if((mm=ref.match(/semifinal\s*(\d+)/i))) return "1/2 №"+mm[1];
   if((mm=ref.match(/round of 32\s*(\d+)/i))) return "1/16 №"+mm[1];
   return name; }
-function updateBracket(){
-  const el=document.getElementById("bracket"); if(!el) return;
-  const matches=(LIVE&&Array.isArray(LIVE.matches))?LIVE.matches:[];
-  if(!matches.length){ el.style.height=""; BRK_NODES=[]; el.innerHTML='<div class="bracket-empty">Сетка появится с началом плей-офф.</div>'; return; }
+
+function buildTree(matches){
   const R={}; RND_ORDER.forEach(r=>R[r]=[]);
   for(const m of matches){ if(R[m.round]) R[m.round].push(m); }
   RND_ORDER.forEach(r=>R[r].sort((a,b)=>(+a.id||0)-(+b.id||0)));
-  const nodes={}; BRK_NODES=[];
-  RND_ORDER.forEach(r=>R[r].forEach(m=>{ const n={round:r,id:m.id,m,children:[],side:null,pos:0}; nodes[m.id]=n; BRK_NODES.push(n); }));
+  const nodes={}, all=[];
+  RND_ORDER.forEach(r=>R[r].forEach(m=>{ const n={round:r,id:m.id,m,feeders:[],children:[],side:null,pos:0}; nodes[m.id]=n; all.push(n); }));
   const listOf=r=>R[r].map(m=>nodes[m.id]);
-  function feeders(node){
-    const ri=RND_ORDER.indexOf(node.round), prev=RND_ORDER[ri-1]; if(!prev||!R[prev].length) return [];
-    const list=listOf(prev), wmap={}; list.forEach(n=>{ const w=winnerC(n.m); if(w) wmap[ckey(w)]=n; });
-    const kids=[];
-    for(const c of (node.m.competitors||[])){
-      let child=null,mm,ref=c.ref||"";
-      if(c.placeholder){
-        if((mm=ref.match(/round of 16\s*(\d+)/i))&&prev==="r16") child=list[+mm[1]-1];
-        else if((mm=ref.match(/quarterfinal\s*(\d+)/i))&&prev==="qf") child=list[+mm[1]-1];
-        else if((mm=ref.match(/semifinal\s*(\d+)/i))&&prev==="sf") child=list[+mm[1]-1];
-        else if((mm=ref.match(/round of 32\s*(\d+)/i))&&prev==="r32") child=list[+mm[1]-1];
-      } else child=wmap[ckey(c)]||null;
-      if(child) kids.push(child);
-    }
-    return kids;
-  }
-  RND_ORDER.forEach((r,ri)=>{ if(ri>0) listOf(r).forEach(n=>{ n.children=feeders(n); }); });
+  KEY2COMP={};
+  all.forEach(n=>(n.m.competitors||[]).forEach(c=>{ if(!c.placeholder){ const k=ckey(c); if(k&&!KEY2COMP[k]) KEY2COMP[k]=c; } }));
+  RND_ORDER.forEach((r,ri)=>{ if(ri===0) return; const prev=RND_ORDER[ri-1]; const list=listOf(prev);
+    const wmap={}; list.forEach(n=>{ const w=winnerC(n.m); if(w&&n.m.completed) wmap[ckey(w)]=n; });
+    listOf(r).forEach(node=>{
+      node.feeders=(node.m.competitors||[]).map(c=>{
+        let mm,ref=c.ref||"";
+        if(c.placeholder){
+          if((mm=ref.match(/round of 16\s*(\d+)/i))&&prev==="r16") return list[+mm[1]-1]||null;
+          if((mm=ref.match(/quarterfinal\s*(\d+)/i))&&prev==="qf") return list[+mm[1]-1]||null;
+          if((mm=ref.match(/semifinal\s*(\d+)/i))&&prev==="sf") return list[+mm[1]-1]||null;
+          if((mm=ref.match(/round of 32\s*(\d+)/i))&&prev==="r32") return list[+mm[1]-1]||null;
+          return null;
+        }
+        return wmap[ckey(c)]||null;
+      });
+      node.children=node.feeders.filter(Boolean);
+    });
+  });
   const root=R.final.length?nodes[R.final[0].id]:null;
+  return {R,nodes,all,listOf,root};
+}
+function resolveWinnerKey(node){
+  const m=node.m, w=(m.competitors||[]).find(c=>c.winner);
+  if(m.completed && w) return ckey(w);
+  return PRED[node.id]||null;
+}
+function resolveParts(node){
+  return (node.m.competitors||[]).map((c,idx)=>{
+    if(!c.placeholder) return ckey(c);
+    const f=node.feeders[idx]; return f?resolveWinnerKey(f):null;
+  });
+}
+function validatePred(){
+  if(!BRK_TREE) return;
+  for(const rd of RND_ORDER){ for(const node of BRK_TREE.listOf(rd)){
+    if(PRED[node.id]!=null){ const parts=resolveParts(node); if(parts.indexOf(PRED[node.id])<0) delete PRED[node.id]; }
+  }}
+}
+function projectStages(){
+  const proj={};
+  for(const id of ALLIDS) proj[id]=(LIVE&&LIVE.teams[id])?LIVE.teams[id].stageIndex:((STATE[id]&&STATE[id].s)||0);
+  if(!BRK_TREE) return proj;
+  for(const node of BRK_TREE.all){
+    const parts=resolveParts(node), w=resolveWinnerKey(node);
+    for(const T of ALLIDS){
+      if(parts.indexOf(T)>=0) proj[T]=Math.max(proj[T],STGI[node.round]);
+      if(w===T) proj[T]=Math.max(proj[T],NEXTI[node.round]);
+    }
+  }
+  return proj;
+}
+function projTotal(pkey,proj){
+  let tot=startingPoints(pkey);
+  for(const t of PLAYERS[pkey].teams){
+    const gi=(LIVE&&LIVE.teams[t.id])?LIVE.teams[t.id].groupWinner:(STATE[t.id]&&STATE[t.id].g);
+    const tp=teamPoints(t,{s:Math.max(0,Math.min(6,proj[t.id]||0)),g:!!gi});
+    tot+=tp.total;
+  }
+  return tot;
+}
+
+function nodeComps(node){
+  if(!PREDICT) return node.m.competitors||[];
+  const parts=resolveParts(node);
+  return (node.m.competitors||[]).map((c,idx)=>{
+    if(!c.placeholder) return c;
+    const key=parts[idx];
+    return (key && KEY2COMP[key]) ? KEY2COMP[key] : c;
+  });
+}
+function renderComp(c,node,predictable,isW){
+  const own=c.id?PLAYER_OF[c.id]:null, meta=c.id?TEAM_BY_ID[c.id]:null;
+  const cls=[own==="kostya"?"k":own==="fargat"?"f":"", isW?"win":"", (node.m.completed&&!isW&&!c.placeholder)?"lose":"", predictable?"pick":""].filter(Boolean).join(" ");
+  const fl=meta?`<span class="fl">${meta.flag}</span>`:"";
+  const nm=meta?esc(meta.name):(c.placeholder?`<span class="ph">${esc(phLabel(c.ref,c.name))}</span>`:esc(c.name));
+  let sc="";
+  if(PREDICT){ if(isW) sc=`<span class="sc ok">✓</span>`; }
+  else if((node.m.completed||node.m.state==="in")&&c.score!==""&&c.score!=null) sc=`<span class="sc">${esc(c.score)}</span>`;
+  const attr=predictable?` data-node="${esc(node.id)}" data-key="${esc(ckey(c))}"`:"";
+  return `<div class="brow ${cls}"${attr}>${fl}<span class="bn">${nm}</span>${sc}</div>`;
+}
+function matchCard(node){
+  const m=node.m, comps=nodeComps(node), w=resolveWinnerKey(node);
+  const rows=comps.map(c=>{
+    const isW=!!w && ckey(c)===w;
+    const predictable=PREDICT && !m.completed && !c.placeholder && !!ckey(c);
+    return renderComp(c,node,predictable,isW);
+  }).join("");
+  return `<div class="match${(!PREDICT&&m.state==="in")?" live":""}${PREDICT?" predmode":""}" data-mid="${esc(node.id)}">${rows}</div>`;
+}
+function updateBracket(){
+  const el=document.getElementById("bracket"); if(!el) return;
+  const matches=(LIVE&&Array.isArray(LIVE.matches))?LIVE.matches:[];
+  if(!matches.length){ el.style.height=""; BRK_TREE=null; el.innerHTML='<div class="bracket-empty">Сетка появится с началом плей-офф.</div>'; updatePredScore(); return; }
+  BRK_TREE=buildTree(matches);
+  if(PREDICT) validatePred();
+  const all=BRK_TREE.all, root=BRK_TREE.root;
   const twoSided=root && root.children.length===2;
   const columns=[];
   if(twoSided){
+    all.forEach(n=>n.side=null);
     const setSide=(n,s)=>{ if(!n||n.side)return; n.side=s; n.children.forEach(c=>setSide(c,s)); };
     setSide(root.children[0],"L"); setSide(root.children[1],"R"); root.side="C";
     let cnt; const dfs=n=>{ if(!n)return; if(!n.children.length){ n.pos=cnt++; return; } n.children.forEach(dfs); n.pos=n.children.reduce((a,k)=>a+k.pos,0)/n.children.length; };
     cnt=0; dfs(root.children[0]); cnt=0; dfs(root.children[1]);
     const four=["r32","r16","qf","sf"];
-    const bySR=(side,rd)=>BRK_NODES.filter(n=>n.side===side&&n.round===rd).sort((a,b)=>a.pos-b.pos);
+    const bySR=(side,rd)=>all.filter(n=>n.side===side&&n.round===rd).sort((a,b)=>a.pos-b.pos);
     for(const rd of four){ const ns=bySR("L",rd); if(ns.length) columns.push({label:RLBL[rd],side:"L",nodes:ns}); }
     columns.push({label:"Финал",side:"C",nodes:[root]});
     for(let i=four.length-1;i>=0;i--){ const ns=bySR("R",four[i]); if(ns.length) columns.push({label:RLBL[four[i]],side:"R",nodes:ns}); }
   } else {
-    for(const rd of RND_ORDER){ const ns=listOf(rd); if(ns.length){ ns.forEach((n,i)=>n.pos=i); columns.push({label:RLBL[rd],side:"L",nodes:ns}); } }
+    for(const rd of RND_ORDER){ const ns=BRK_TREE.listOf(rd); if(ns.length){ ns.forEach((n,i)=>n.pos=i); columns.push({label:RLBL[rd],side:"L",nodes:ns}); } }
   }
   let maxCount=0, html="";
   for(const col of columns){
@@ -502,28 +617,18 @@ function updateBracket(){
   el.innerHTML=html;
   el.style.height=(Math.max(1,maxCount)*rowH()+28)+"px";
   requestAnimationFrame(drawConnectors);
-}
-function matchCard(n){ const m=n.m;
-  return `<div class="match${m.state==="in"?" live":""}" data-mid="${esc(n.id)}">${(m.competitors||[]).map(c=>compRow(c,m)).join("")}</div>`; }
-function compRow(c,m){
-  const own=c.id?PLAYER_OF[c.id]:null, meta=c.id?TEAM_BY_ID[c.id]:null;
-  const cls=[own==="kostya"?"k":own==="fargat"?"f":"", c.winner?"win":"", (m.completed&&!c.winner)?"lose":""].filter(Boolean).join(" ");
-  const fl=meta?`<span class="fl">${meta.flag}</span>`:"";
-  const nm=meta?esc(meta.name):(c.placeholder?`<span class="ph">${esc(phLabel(c.ref,c.name))}</span>`:esc(c.name));
-  const sc=((m.completed||m.state==="in")&&c.score!=="")?`<span class="sc">${esc(c.score)}</span>`:"";
-  return `<div class="brow ${cls}">${fl}<span class="bn">${nm}</span>${sc}</div>`;
+  updatePredScore();
 }
 function drawConnectors(){
-  const el=document.getElementById("bracket"); if(!el) return;
+  const el=document.getElementById("bracket"); if(!el||!BRK_TREE) return;
   const old=el.querySelector("svg.links"); if(old) old.remove();
-  if(!BRK_NODES.length) return;
   const NS="http://www.w3.org/2000/svg";
   const svg=document.createElementNS(NS,"svg");
   svg.setAttribute("class","links");
   svg.setAttribute("width",el.scrollWidth); svg.setAttribute("height",el.scrollHeight);
   const elm=id=>el.querySelector('.match[data-mid="'+id+'"]');
   let drew=0;
-  for(const n of BRK_NODES){
+  for(const n of BRK_TREE.all){
     const b=elm(n.id); if(!b) continue;
     for(const child of n.children){
       const a=elm(child.id); if(!a) continue;
@@ -539,6 +644,75 @@ function drawConnectors(){
     }
   }
   if(drew) el.insertBefore(svg, el.firstChild);
+}
+function updatePredScore(){
+  const el=document.getElementById("predScore"), rb=document.getElementById("predReset"), tg=document.getElementById("predToggle");
+  if(tg){ tg.classList.toggle("on",PREDICT); tg.textContent=(PREDICT?"✅ ":"🔮 ")+"Режим прогноза"; }
+  if(!el) return;
+  if(!PREDICT){ el.style.display="none"; if(rb) rb.style.display="none"; return; }
+  const proj=projectStages(); const k=projTotal("kostya",proj), f=projTotal("fargat",proj);
+  const lead = k>f?'<span class="nameK">Костя</span>' : f>k?'<span class="nameF">Фаргат</span>' : "";
+  el.style.display=""; if(rb) rb.style.display="";
+  el.innerHTML = `Прогноз: <b>${k} : ${f}</b>` + (k===f?" · ничья" : ` · впереди ${lead}`);
+}
+function togglePredict(){ PREDICT=!PREDICT; if(!PREDICT) PRED={}; updateBracket(); }
+function resetPredict(){ PRED={}; updateBracket(); }
+function onBracketClick(e){
+  if(!PREDICT) return;
+  const row=e.target.closest('.brow[data-node]'); if(!row) return;
+  const nid=row.getAttribute("data-node"), key=row.getAttribute("data-key");
+  if(PRED[nid]===key) delete PRED[nid]; else PRED[nid]=key;
+  validatePred(); updateBracket();
+}
+
+/* ---------- СЦЕНАРИИ ПОБЕДЫ ---------- */
+function curTotalReal(pkey){
+  let tot=startingPoints(pkey);
+  for(const t of PLAYERS[pkey].teams){ const d=(LIVE&&LIVE.teams[t.id])||{}; tot+=teamPoints(t,{s:d.stageIndex||0,g:!!d.groupWinner}).total; }
+  return tot;
+}
+function maxTotalReal(pkey){
+  let tot=curTotalReal(pkey);
+  for(const t of PLAYERS[pkey].teams){ const d=(LIVE&&LIVE.teams[t.id])||{}; if(d.status==="alive") tot+=(STAGES[6].pts-STAGES[d.stageIndex||0].pts); }
+  return tot;
+}
+function updateScenarios(){
+  const el=document.getElementById("scenarios"); if(!el) return;
+  if(!LIVE||!LIVE.teams||!BRK_TREE){ el.innerHTML='<div class="sc-muted">Сценарии появятся с началом плей-офф.</div>'; return; }
+  const K=curTotalReal("kostya"), F=curTotalReal("fargat");
+  const mK=maxTotalReal("kostya"), mF=maxTotalReal("fargat");
+  let verdict,vc="";
+  if(K>mF){ verdict="Костя уже гарантировал победу 🏆"; vc="k"; }
+  else if(F>mK){ verdict="Фаргат уже гарантировал победу 🏆"; vc="f"; }
+  else if(K===F){ verdict="Ровно поровну — всё решат оставшиеся матчи"; }
+  else verdict="Итог ещё не решён — всё в игре";
+  // ближайшие матчи с вашими командами (реальные соперники известны, ещё не сыграны)
+  const items=[];
+  for(const node of BRK_TREE.all){
+    const m=node.m; if(m.completed) continue;
+    const comps=m.competitors||[]; if(comps.some(c=>c.placeholder)) continue;
+    if(!comps.some(c=>c.id)) continue;
+    const nextPts=STAGES[NEXTI[node.round]]?STAGES[NEXTI[node.round]].pts:0;
+    const parts=comps.map(c=>{ if(!c.id) return {name:esc(c.name),owner:null,delta:0};
+      const cur=STAGES[(LIVE.teams[c.id]?LIVE.teams[c.id].stageIndex:0)].pts;
+      return {id:c.id,name:(TEAM_BY_ID[c.id]?TEAM_BY_ID[c.id].flag+" "+TEAM_BY_ID[c.id].name:esc(c.name)),owner:PLAYER_OF[c.id],delta:Math.max(0,nextPts-cur)}; });
+    const derby = parts[0].owner && parts[1].owner && parts[0].owner!==parts[1].owner;
+    items.push({round:node.round,date:m.date||"",live:m.state==="in",parts,derby});
+  }
+  items.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  const nm=p=>p.owner==="kostya"?'<span class="nameK">Костя</span>':p.owner==="fargat"?'<span class="nameF">Фаргат</span>':"";
+  let html=`<div class="sc-verdict ${vc}">${verdict}</div>`;
+  html+=`<div class="sc-pot">Потенциал (если команды пройдут дальше): Костя <b>${K}→${mK}</b> · Фаргат <b>${F}→${mF}</b></div>`;
+  if(items.length){
+    html+=`<div class="sc-h">Ближайшие матчи ваших команд:</div>`;
+    for(const it of items.slice(0,8)){
+      const rows=it.parts.filter(p=>p.owner).map(p=>`если пройдёт ${p.name} → +${p.delta} ${nm(p)}`).join(" · ");
+      html+=`<div class="sc-item${it.derby?" derby":""}">${it.derby?'<span class="derby-b">ДЕРБИ</span> ':""}${it.live?'<span class="live-b">LIVE</span> ':""}<span class="sc-r">${RLBL[it.round]}</span> ${it.parts.map(p=>p.name).join(" — ")}<div class="sc-imp">${rows}</div></div>`;
+    }
+  } else {
+    html+=`<div class="sc-muted">Сейчас нет предстоящих матчей ваших команд с известными соперниками.</div>`;
+  }
+  el.innerHTML=html;
 }
 window.addEventListener("resize",()=>{ clearTimeout(window.__brkT); window.__brkT=setTimeout(updateBracket,200); });
 
@@ -607,6 +781,10 @@ document.getElementById("resetManual").addEventListener("click",()=>{
     applyLiveAll(); save(); recalc(); toast("Все команды — на авто"); fetchLive(false);
   }
 });
+
+document.getElementById("predToggle").addEventListener("click",togglePredict);
+document.getElementById("predReset").addEventListener("click",resetPredict);
+document.getElementById("bracket").addEventListener("click",onBracketClick);
 
 buildBoard();
 load();
