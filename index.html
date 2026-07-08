@@ -201,6 +201,15 @@
   #scenarios .derby-b{background:var(--gold);color:#221c00}
   #scenarios .live-b{background:var(--warn);color:#221c00}
   #scenarios .sc-muted{color:var(--muted);font-size:13px}
+  #upcoming .up-item{display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:7px}
+  #upcoming .up-when{flex:none;min-width:120px;font-size:12.5px;color:var(--muted);font-weight:600;line-height:1.25}
+  #upcoming .up-when b{display:block;color:var(--txt);font-size:13.5px}
+  #upcoming .up-teams{flex:1;min-width:0;font-weight:700;font-size:14px}
+  #upcoming .up-r{font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-left:8px}
+  #upcoming .up-live{background:var(--warn);color:#221c00;font-size:9.5px;font-weight:800;border-radius:4px;padding:1px 6px;margin-left:8px}
+  #upcoming .up-ph{color:var(--muted);font-style:italic;font-weight:400}
+  #upcoming .up-muted{color:var(--muted);font-size:13px}
+  @media(max-width:520px){ #upcoming .up-item{flex-wrap:wrap;gap:4px 12px} #upcoming .up-when{min-width:0;width:100%;display:flex;gap:6px;align-items:baseline} #upcoming .up-when b{display:inline} }
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#0a1622;color:#fff;
     border:1px solid var(--accent);border-radius:12px;padding:11px 18px;font-size:14px;opacity:0;pointer-events:none;
     transition:all .3s;z-index:50;box-shadow:var(--shadow);max-width:90vw;text-align:center}
@@ -224,6 +233,11 @@
   </div>
 
   <div class="board" id="board"></div>
+
+  <div class="stats" id="upcoming-wrap">
+    <h3>📅 Ближайшие матчи ваших команд</h3>
+    <div id="upcoming"></div>
+  </div>
 
   <div class="stats">
     <h3>Тай-брейк (при равенстве очков сверху вниз)</h3>
@@ -443,6 +457,7 @@ function recalc(){
   updateStats(sum.kostya,sum.fargat);
   updateBracket();
   updateScenarios();
+  updateUpcoming();
 }
 function updateLeader(k,f){
   const el=document.getElementById("leader"); const d=decide(k,f);
@@ -711,6 +726,32 @@ function updateScenarios(){
     }
   } else {
     html+=`<div class="sc-muted">Сейчас нет предстоящих матчей ваших команд с известными соперниками.</div>`;
+  }
+  el.innerHTML=html;
+}
+/* ---------- БЛИЖАЙШИЕ МАТЧИ ---------- */
+function fmtDT(iso){
+  try{ iso=(iso||"").replace(/T(\d\d:\d\d)Z$/,"T$1:00Z"); const d=new Date(iso);
+    if(isNaN(d)) return {day:"",tm:""};
+    return { day:d.toLocaleDateString("ru-RU",{day:"numeric",month:"long"}), tm:d.toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}) };
+  }catch(e){ return {day:"",tm:""}; }
+}
+function teamLabel(c){
+  if(c.id && TEAM_BY_ID[c.id]){ const meta=TEAM_BY_ID[c.id]; const cls=PLAYER_OF[c.id]==="kostya"?"nameK":"nameF"; return `<span class="${cls}">${meta.flag} ${esc(meta.name)}</span>`; }
+  if(c.placeholder) return `<span class="up-ph">${esc(phLabel(c.ref,c.name))}</span>`;
+  return esc(c.name);
+}
+function updateUpcoming(){
+  const el=document.getElementById("upcoming"); if(!el) return;
+  if(!LIVE||!Array.isArray(LIVE.matches)){ el.innerHTML='<div class="up-muted">Данные подтянутся автоматически.</div>'; return; }
+  const list=LIVE.matches.filter(m=>!m.completed && (m.competitors||[]).some(c=>c.id));
+  list.sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0));
+  if(!list.length){ el.innerHTML='<div class="up-muted">Нет предстоящих матчей ваших команд.</div>'; return; }
+  let html="";
+  for(const m of list.slice(0,12)){
+    const {day,tm}=fmtDT(m.date); const live=m.state==="in";
+    const teams=(m.competitors||[]).map(teamLabel).join(' <span style="color:var(--muted)">—</span> ');
+    html+=`<div class="up-item"><div class="up-when"><b>${day||"—"}</b>${tm}</div><div class="up-teams">${teams}<span class="up-r">${RLBL[m.round]||""}</span>${live?'<span class="up-live">LIVE</span>':""}</div></div>`;
   }
   el.innerHTML=html;
 }
