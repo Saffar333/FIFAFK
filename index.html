@@ -687,8 +687,19 @@ function curTotalReal(pkey){
   return tot;
 }
 function maxTotalReal(pkey){
-  let tot=curTotalReal(pkey);
-  for(const t of PLAYERS[pkey].teams){ const d=(LIVE&&LIVE.teams[t.id])||{}; if(d.status==="alive") tot+=(STAGES[6].pts-STAGES[d.stageIndex||0].pts); }
+  if(!BRK_TREE) return curTotalReal(pkey);
+  const mine=new Set(PLAYERS[pkey].teams.map(t=>t.id));
+  const saved=PRED, tmp={}; PRED=tmp;
+  // максимум по сетке: продвигаем все команды игрока во всех несыгранных матчах,
+  // при очной встрече своих команд дальше проходит только одна (сетка учитывается автоматически)
+  for(const rd of RND_ORDER){ for(const node of BRK_TREE.listOf(rd)){
+    if(node.m.completed) continue;
+    const parts=resolveParts(node);
+    const mp=parts.filter(k=>k && mine.has(k));
+    if(mp.length) tmp[node.id]=mp[0];
+  }}
+  const proj=projectStages(), tot=projTotal(pkey,proj);
+  PRED=saved;
   return tot;
 }
 function updateScenarios(){
@@ -717,7 +728,7 @@ function updateScenarios(){
   items.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
   const nm=p=>p.owner==="kostya"?'<span class="nameK">Костя</span>':p.owner==="fargat"?'<span class="nameF">Фаргат</span>':"";
   let html=`<div class="sc-verdict ${vc}">${verdict}</div>`;
-  html+=`<div class="sc-pot">Потенциал (если команды пройдут дальше): Костя <b>${K}→${mK}</b> · Фаргат <b>${F}→${mF}</b></div>`;
+  html+=`<div class="sc-pot">Потенциал по сетке (сейчас → максимум): Костя <b>${K}→${mK}</b> · Фаргат <b>${F}→${mF}</b></div>`;
   if(items.length){
     html+=`<div class="sc-h">Ближайшие матчи ваших команд:</div>`;
     for(const it of items.slice(0,8)){
