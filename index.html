@@ -209,6 +209,29 @@
   #upcoming .up-live{background:var(--warn);color:#221c00;font-size:9.5px;font-weight:800;border-radius:4px;padding:1px 6px;margin-left:8px}
   #upcoming .up-ph{color:var(--muted);font-style:italic;font-weight:400}
   #upcoming .up-muted{color:var(--muted);font-size:13px}
+  /* победный экран + итоги */
+  .victory{position:relative;overflow:hidden;border-radius:18px;margin:14px 0 18px;border:1px solid rgba(245,197,66,.45);
+    background:linear-gradient(135deg,var(--panel),var(--panel2));box-shadow:var(--shadow)}
+  .victory .confetti{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+  .v-inner{position:relative;z-index:1;padding:26px 18px;text-align:center}
+  .v-inner.k{background:radial-gradient(620px 220px at 50% 0%,rgba(61,169,252,.20),transparent 70%)}
+  .v-inner.f{background:radial-gradient(620px 220px at 50% 0%,rgba(255,122,89,.20),transparent 70%)}
+  .v-cup{font-size:54px;line-height:1;filter:drop-shadow(0 6px 16px rgba(245,197,66,.55));animation:pop .8s ease both}
+  @keyframes pop{0%{transform:scale(.3) rotate(-18deg);opacity:0}60%{transform:scale(1.18) rotate(4deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+  .v-title{font-size:clamp(19px,5vw,31px);font-weight:900;letter-spacing:.6px;margin-top:8px}
+  .v-name{color:var(--gold)}
+  .v-score{font-size:clamp(30px,8vw,48px);font-weight:900;font-variant-numeric:tabular-nums;margin:6px 0 4px}
+  .v-sub{color:var(--muted);font-size:13.5px;line-height:1.5}
+  #summary .sum-score{font-size:clamp(18px,4.5vw,25px);font-weight:800;text-align:center;margin-bottom:6px;font-variant-numeric:tabular-nums}
+  #summary .sum-break{text-align:center;color:var(--muted);font-size:12.5px;margin-bottom:6px}
+  #summary .sum-h{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;margin:16px 0 8px}
+  #summary table.sum-t{width:100%;border-collapse:collapse;font-size:13px}
+  #summary table.sum-t td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
+  #summary table.sum-t td.st{color:var(--muted);text-align:right;font-size:12px;white-space:nowrap}
+  #summary table.sum-t td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:800;width:52px}
+  #summary table.sum-t tr:last-child td{border-bottom:none}
+  #summary table.sum-t tr.zero{opacity:.45}
+  #summary .sum-list{margin:0;padding-left:18px;font-size:13.5px;line-height:1.75}
   @media(max-width:520px){ #upcoming .up-item{flex-wrap:wrap;gap:4px 12px} #upcoming .up-when{min-width:0;width:100%;display:flex;gap:6px;align-items:baseline} #upcoming .up-when b{display:inline} }
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#0a1622;color:#fff;
     border:1px solid var(--accent);border-radius:12px;padding:11px 18px;font-size:14px;opacity:0;pointer-events:none;
@@ -228,11 +251,21 @@
     <button class="mini" id="refresh">↻ Обновить</button>
   </div>
 
+  <div class="victory" id="victory" style="display:none">
+    <canvas class="confetti" id="confetti"></canvas>
+    <div class="v-inner"></div>
+  </div>
+
   <div class="leader" id="leader">
     <span class="crown">⚽</span><span class="lead-main">—</span><span class="lead-sub"></span>
   </div>
 
   <div class="board" id="board"></div>
+
+  <div class="stats" id="summary-wrap" style="display:none">
+    <h3>Итоги турнира</h3>
+    <div id="summary"></div>
+  </div>
 
   <div class="stats" id="upcoming-wrap">
     <h3>📅 Ближайшие матчи ваших команд</h3>
@@ -458,6 +491,7 @@ function recalc(){
   updateBracket();
   updateScenarios();
   updateUpcoming();
+  updateVictory();
 }
 function updateLeader(k,f){
   const el=document.getElementById("leader"); const d=decide(k,f);
@@ -765,6 +799,87 @@ function updateUpcoming(){
     html+=`<div class="up-item"><div class="up-when"><b>${day||"—"}</b>${tm}</div><div class="up-teams">${teams}<span class="up-r">${RLBL[m.round]||""}</span>${live?'<span class="up-live">LIVE</span>':""}</div></div>`;
   }
   el.innerHTML=html;
+}
+/* ---------- ФИНАЛ: ПОБЕДА И ИТОГИ ---------- */
+const SNAME=["не вышла из группы","1/16 финала","1/8 финала","1/4 финала","1/2 финала","финал","чемпион 🏆"];
+function plOch(n){ const a=n%10,b=n%100; if(a===1&&b!==11) return "очко"; if(a>=2&&a<=4&&(b<10||b>20)) return "очка"; return "очков"; }
+function isFinished(){ return !!(LIVE&&Array.isArray(LIVE.matches)&&LIVE.matches.some(m=>m.round==="final"&&m.completed)); }
+function startConfetti(){
+  const cv=document.getElementById("confetti"); if(!cv||cv.__on) return; cv.__on=true;
+  const ctx=cv.getContext("2d"); let W=0,H=0; const cols=["#f5c542","#3da9fc","#ff7a59","#34c77b","#ffffff"];
+  const size=()=>{ const r=cv.parentElement.getBoundingClientRect(); W=cv.width=Math.max(1,r.width); H=cv.height=Math.max(1,r.height); };
+  size(); window.addEventListener("resize",size);
+  const parts=[]; for(let i=0;i<90;i++) parts.push({x:Math.random()*W,y:Math.random()*-H,w:4+Math.random()*6,h:6+Math.random()*8,
+    vy:1+Math.random()*2.4,vx:-.6+Math.random()*1.2,rot:Math.random()*6.28,vr:-.12+Math.random()*.24,c:cols[(Math.random()*cols.length)|0]});
+  const t0=Date.now();
+  (function draw(){
+    ctx.clearRect(0,0,W,H);
+    for(const p of parts){ p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr; if(p.y>H+20){ p.y=-20; p.x=Math.random()*W; }
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.fillStyle=p.c; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore(); }
+    if(Date.now()-t0<16000) requestAnimationFrame(draw); else ctx.clearRect(0,0,W,H);
+  })();
+}
+function updateVictory(){
+  const vic=document.getElementById("victory"), sw=document.getElementById("summary-wrap");
+  const up=document.getElementById("upcoming-wrap"), sc=document.getElementById("scenarios-wrap"), ld=document.getElementById("leader");
+  const fin=isFinished();
+  if(up) up.style.display=fin?"none":"";
+  if(sc) sc.style.display=fin?"none":"";
+  if(ld) ld.style.display=fin?"none":"";
+  if(vic) vic.style.display=fin?"":"none";
+  if(sw) sw.style.display=fin?"":"none";
+  if(!fin||!vic) return;
+  const k=playerSummary("kostya"), f=playerSummary("fargat"), d=decide(k,f);
+  const inner=vic.querySelector(".v-inner");
+  let champ=null;
+  for(const p of ["kostya","fargat"]) for(const t of PLAYERS[p].teams){ if(((LIVE.teams[t.id]||{}).stageIndex)===6) champ={t,p}; }
+  const diff=Math.abs(k.total-f.total);
+  if(d.winner==="tie"){
+    inner.className="v-inner tie";
+    inner.innerHTML=`<div class="v-cup">🤝</div><div class="v-title">НИЧЬЯ</div>
+      <div class="v-score">${k.total} : ${f.total}</div>
+      <div class="v-sub">Полное равенство по всем критериям тай-брейка</div>`;
+  } else {
+    const isK=d.winner==="kostya";
+    inner.className="v-inner "+(isK?"k":"f");
+    inner.innerHTML=`<div class="v-cup">🏆</div>
+      <div class="v-title">ПОБЕДИЛ <span class="v-name">${isK?"Костя":"Фаргат"}</span></div>
+      <div class="v-score"><span class="nameK">${k.total}</span> : <span class="nameF">${f.total}</span></div>
+      <div class="v-sub">${d.criterion==="total"?`преимущество ${diff} ${plOch(diff)}`:`по тай-брейку: ${d.reason}`}${champ?` · чемпион мира — ${champ.t.flag} ${esc(champ.t.name)}`:""}</div>`;
+  }
+  startConfetti();
+  updateSummary(k,f);
+}
+function updateSummary(k,f){
+  const el=document.getElementById("summary"); if(!el||!LIVE||!LIVE.teams) return;
+  const rows=[];
+  for(const p of ["kostya","fargat"]) for(const t of PLAYERS[p].teams){
+    const dd=LIVE.teams[t.id]||{}; const s=Math.max(0,Math.min(6,dd.stageIndex||0)), g=!!dd.groupWinner;
+    const tp=teamPoints(t,{s,g}); rows.push({p,t,s,stage:tp.stage,bonus:tp.bonus,total:tp.total});
+  }
+  rows.sort((a,b)=>b.total-a.total||b.s-a.s);
+  const bestOf=p=>rows.filter(r=>r.p===p)[0];
+  const champ=rows.find(r=>r.s===6), fins=rows.filter(r=>r.s>=5);
+  const outG=p=>rows.filter(r=>r.p===p&&r.s===0).length;
+  const pname=p=>p==="kostya"?"Костя":"Фаргат";
+  const diff=Math.abs(k.total-f.total);
+  let h=`<div class="sum-score"><span class="nameK">Костя</span> ${k.total} : ${f.total} <span class="nameF">Фаргат</span></div>`;
+  h+=`<div class="sum-break">Костя: старт ${k.start} + стадии ${k.stageSum} + бонусы ${k.bonusSum} &nbsp;·&nbsp; Фаргат: старт ${f.start} + стадии ${f.stageSum} + бонусы ${f.bonusSum}</div>`;
+  h+=`<div class="sum-h">Вклад команд</div><table class="sum-t">`;
+  for(const r of rows){
+    h+=`<tr class="${r.total?"":"zero"}"><td><span class="${r.p==="kostya"?"nameK":"nameF"}">${r.t.flag} ${esc(r.t.name)}</span></td>`+
+       `<td class="st">${SNAME[r.s]}</td><td class="n">${r.total}${r.bonus?` <span style="color:var(--good);font-size:11px">+${r.bonus}</span>`:""}</td></tr>`;
+  }
+  h+=`</table><div class="sum-h">Главное</div><ul class="sum-list">`;
+  if(champ) h+=`<li>🏆 Чемпион мира — ${champ.t.flag} <b>${esc(champ.t.name)}</b> (${pname(champ.p)}), ${champ.total} ${plOch(champ.total)}</li>`;
+  if(fins.length) h+=`<li>🥈 Дошли до финала: ${fins.map(r=>`${r.t.flag} ${esc(r.t.name)} (${pname(r.p)})`).join(", ")}</li>`;
+  const bk=bestOf("kostya"), bf=bestOf("fargat");
+  if(bk) h+=`<li>💪 Лучшая у Кости — ${bk.t.flag} ${esc(bk.t.name)}: ${SNAME[bk.s]}, ${bk.total} ${plOch(bk.total)}</li>`;
+  if(bf) h+=`<li>💪 Лучшая у Фаргата — ${bf.t.flag} ${esc(bf.t.name)}: ${SNAME[bf.s]}, ${bf.total} ${plOch(bf.total)}</li>`;
+  h+=`<li>❌ Не вышли из группы: Костя — ${outG("kostya")}, Фаргат — ${outG("fargat")}</li>`;
+  h+=`<li>📊 Итоговый разрыв — ${diff} ${plOch(diff)}</li>`;
+  h+=`</ul>`;
+  el.innerHTML=h;
 }
 window.addEventListener("resize",()=>{ clearTimeout(window.__brkT); window.__brkT=setTimeout(updateBracket,200); });
 
